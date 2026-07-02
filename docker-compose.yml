@@ -1,0 +1,194 @@
+# ApprovalFlow — local stack. `docker compose up --build` brings up everything (M4).
+# Each application service runs next to its own Dapr sidecar (daprd). The sidecar
+# shares the app's network namespace (network_mode: service:<app>) so the app reaches
+# Dapr on localhost, while the sidecar reaches redis/zipkin/placement by service name.
+
+name: approvalflow
+
+services:
+  # ───────────────────────── Infrastructure ─────────────────────────
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    networks: [approvalflow]
+
+  zipkin:
+    image: openzipkin/zipkin:3
+    restart: unless-stopped
+    ports:
+      - "9411:9411"
+    networks: [approvalflow]
+
+  placement:
+    image: daprio/dapr:1.18.1
+    command: ["./placement", "-port", "50006"]
+    restart: unless-stopped
+    networks: [approvalflow]
+
+  # ───────────────────────────── Intake ─────────────────────────────
+  intake:
+    build:
+      context: .
+      dockerfile: services/intake/Dockerfile
+    environment:
+      SERVICE_NAME: intake
+      LOG_LEVEL: INFO
+    # No host port — the API gateway is the single external entry point (M6).
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  intake-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "intake"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [intake, redis, placement]
+    network_mode: "service:intake"
+
+  # ─────────────────────────── Orchestrator ─────────────────────────
+  orchestrator:
+    build:
+      context: .
+      dockerfile: services/orchestrator/Dockerfile
+    environment:
+      SERVICE_NAME: orchestrator
+      LOG_LEVEL: INFO
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  orchestrator-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "orchestrator"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [orchestrator, redis, placement]
+    network_mode: "service:orchestrator"
+
+  # ─────────────────────────── AI-Decision ──────────────────────────
+  ai-decision:
+    build:
+      context: .
+      dockerfile: services/ai-decision/Dockerfile
+    environment:
+      SERVICE_NAME: ai-decision
+      LOG_LEVEL: INFO
+      # Swappable provider (M15): stub runs offline; set gemini/groq/openrouter + a key
+      # in .env for a real model. Compose passes the values straight through.
+      LLM_PROVIDER: ${LLM_PROVIDER:-stub}
+      LLM_MODEL: ${LLM_MODEL:-}
+      LLM_API_KEY: ${LLM_API_KEY:-}
+      LLM_BASE_URL: ${LLM_BASE_URL:-}
+      POLICY_PATH: /app/policy.md
+    volumes:
+      # RAG source (N5): mounted, so a policy edit needs a restart, not a rebuild (F7).
+      - ./policy.md:/app/policy.md:ro
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  ai-decision-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "ai-decision"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [ai-decision, redis, placement]
+    network_mode: "service:ai-decision"
+
+  # ───────────────────────────── Gateway ────────────────────────────
+  gateway:
+    build:
+      context: .
+      dockerfile: services/gateway/Dockerfile
+    environment:
+      SERVICE_NAME: gateway
+      LOG_LEVEL: INFO
+      GATEWAY_RATE_LIMIT: "100/minute"
+    ports:
+      - "8080:8000" # the ONLY external entry point
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  gateway-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "gateway"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [gateway, redis, placement]
+    network_mode: "service:gateway"
+
+  # ─────────────────────────────── UI ───────────────────────────────
+  ui:
+    build:
+      context: ./ui
+    ports:
+      - "3000:80"
+    depends_on: [gateway]
+    networks: [approvalflow]
+
+networks:
+  approvalflow:
+
+
