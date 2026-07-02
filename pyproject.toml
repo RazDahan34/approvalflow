@@ -1,0 +1,16 @@
+# Repo-level tooling config (NOT a package — each service/lib has its own pyproject).
+[tool.pytest.ini_options]
+testpaths = ["tests", "services", "libs"]
+python_files = ["test_*.py"]
+addopts = "-q"
+
+[tool.ruff]
+line-length = 120
+target-version = "py312"
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+
+[tool.mypy]
+python_version = "3.12"
+ignore_missing_imports = true

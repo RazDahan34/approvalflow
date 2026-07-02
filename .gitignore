@@ -1,0 +1,45 @@
+# ── Secrets & environment ──
+.env
+.env.*
+!.env.example
+*.key
+*.pem
+secrets/local/
+
+# ── Python ──
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+coverage.xml
+htmlcov/
+dist/
+build/
+
+# ── Node / UI ──
+node_modules/
+ui/dist/
+ui/.vite/
+npm-debug.log*
+*.log
+
+# ── Docker / Dapr ──
+.dapr/
+*.pid
+
+# ── IDE / OS ──
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# ── Reference materials (course PDFs / brief — not part of the deliverable) ──
+*.pdf
+
+# ── Misc ──
+*.tmp

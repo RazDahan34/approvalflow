@@ -1,0 +1,25 @@
+# Keep the build context small — only libs/ and services/<name>/ are copied into images.
+.git
+.gitignore
+**/__pycache__/
+**/*.py[cod]
+.venv/
+venv/
+**/.pytest_cache/
+**/.mypy_cache/
+**/.ruff_cache/
+**/.coverage
+node_modules/
+ui/dist/
+ui/node_modules/
+*.pdf
+docs/
+infra/
+.github/
+tests/
+eval/
+verify/
+*.md
+.env
+.env.*
+!.env.example
