@@ -144,6 +144,86 @@ def test_rag_clauses_replace_the_static_rule_list():
     assert "TRAVEL-02" not in captured["system"]  # irrelevant clause stays out
 
 
+class FakeToolClient:
+    """Stands in for the MCP client: records calls, returns canned results."""
+
+    def __init__(self):
+        self.calls = []
+
+    def tool_schemas(self):
+        return [
+            {
+                "type": "function",
+                "function": {
+                    "name": "lookup_vendor",
+                    "description": "Check the vendor master list.",
+                    "parameters": {"type": "object", "properties": {"name": {"type": "string"}}},
+                },
+            }
+        ]
+
+    def call(self, name, arguments):
+        self.calls.append((name, arguments))
+        return json.dumps({"name": arguments.get("name"), "known": True})
+
+
+def test_tool_loop_executes_mcp_calls_then_parses_final_json():
+    requests_seen = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = json.loads(request.content)
+        requests_seen.append(payload)
+        if len(requests_seen) == 1:
+            # Round 1: the model asks for a tool.
+            assert payload["tools"][0]["function"]["name"] == "lookup_vendor"
+            message = {
+                "role": "assistant",
+                "content": None,
+                "tool_calls": [
+                    {
+                        "id": "call_1",
+                        "type": "function",
+                        "function": {"name": "lookup_vendor", "arguments": '{"name": "Bistro 19"}'},
+                    }
+                ],
+            }
+            return httpx.Response(200, json={"choices": [{"message": message}]})
+        # Round 2: the tool result is in the transcript; the model answers.
+        roles = [m["role"] for m in payload["messages"]]
+        assert "tool" in roles
+        return httpx.Response(200, json=completion_response(json.dumps(GOOD_RECOMMENDATION)))
+
+    provider = make_provider(handler)
+    tools = FakeToolClient()
+    provider.tool_client = tools
+
+    rec = provider.recommend(INVOICE)
+    assert rec.proposed_route is Route.auto_approve
+    assert tools.calls == [("lookup_vendor", {"name": "Bistro 19"})]
+    assert len(requests_seen) == 2
+
+
+def test_tool_loop_failure_is_loud():
+    def handler(request: httpx.Request) -> httpx.Response:
+        message = {
+            "role": "assistant",
+            "content": None,
+            "tool_calls": [
+                {"id": "c1", "type": "function", "function": {"name": "lookup_vendor", "arguments": "{}"}}
+            ],
+        }
+        return httpx.Response(200, json={"choices": [{"message": message}]})
+
+    class BrokenToolClient(FakeToolClient):
+        def call(self, name, arguments):
+            raise ConnectionError("mcp server down")
+
+    provider = make_provider(handler)
+    provider.tool_client = BrokenToolClient()
+    with pytest.raises(ProviderError, match="MCP tool"):
+        provider.recommend(INVOICE)
+
+
 def test_agent_may_not_claim_duplicate():
     # Duplicate detection is intake's deterministic job; a model saying "duplicate"
     # is coerced to human_review, never trusted.

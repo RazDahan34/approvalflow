@@ -35,6 +35,9 @@ class Settings(BaseSettings):
     # ── Policy document (RAG source, N5) ──
     policy_path: str = "policy.md"
 
+    # ── MCP tool server (B2); empty = agent runs without remote tools ──
+    mcp_server_url: str = ""
+
     # ── Autonomy thresholds (the dilemma) — externally configurable (M13/F7).
     #    The envelope; per-category tiers live in PolicyConfig / Dapr config. ──
     autonomy_ceiling_usd: float = 500.0

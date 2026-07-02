@@ -1,0 +1,20 @@
+{
+  "_about": "Vendor master list served by the MCP lookup_vendor tool. Seeded from the known vendors in the shipped fixtures.",
+  "known_vendors": [
+    "Bistro 19",
+    "Atlassian",
+    "The Rooftop Grill",
+    "Dell",
+    "Trattoria Verde",
+    "Office Depot",
+    "Hotel Adler",
+    "Lakeside Venue",
+    "RackSpace Supplies",
+    "PixelForge",
+    "ExpoWorks",
+    "City Cabs",
+    "Logitech",
+    "DataDog",
+    "Lufthansa"
+  ]
+}

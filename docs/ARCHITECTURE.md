@@ -49,6 +49,7 @@ via Dapr.
 | `payment` | payments, **budget reservations** | M9, M10 |
 | `notification` | sent notifications | F2, M8 |
 | `audit` | append-only decision trail, autonomy ledger | F8, F9, F10 |
+| `mcp-server` | vendor master list, policy index (tool plane) | B2 |
 
 ```mermaid
 flowchart TB
@@ -70,6 +71,8 @@ flowchart TB
   BUS -->|subscribe| NOTIF["Notification"]
   BUS -->|subscribe| AUD
   NOTIF -->|deliver result| UI
+
+  AI -->|MCP tools: fetch_policy · lookup_vendor| MCPS["MCP Server (B2)"]
 
   ORCH -.->|state / secrets| DAPR[("Dapr state + secrets")]
   PAY  -.->|state ETag CAS| DAPR

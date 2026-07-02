@@ -1,0 +1,3 @@
+# The shared library provides pydantic + the policy index; mcp brings the protocol
+# server (FastMCP) and its own uvicorn runtime.
+mcp>=1.9,<2

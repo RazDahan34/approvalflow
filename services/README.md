@@ -13,6 +13,7 @@ service-invocation for synchronous calls.
 | `payment` | Engine + ResourceAccess | Executes payment; reserves / releases budget (compensation); idempotent; injectable failure. |
 | `notification` | Engine | Delivers the final outcome to the submitter, asynchronously. |
 | `audit` | Engine + ResourceAccess | Append-only decision trail by correlation id; ceiling-proof ledger; dashboard / reporting data. |
+| `mcp-server` | Engine (tool plane) | The agent's tools (`fetch_policy`, `lookup_vendor`, `get_autonomy_thresholds`) over the Model Context Protocol (B2). |
 
 > **The agent only _recommends_; the orchestrator's router _decides_.** That separation is what makes the
 > autonomy ceiling provable (M12 / F10).

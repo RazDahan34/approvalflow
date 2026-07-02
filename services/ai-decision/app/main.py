@@ -31,9 +31,18 @@ elif settings.llm_provider != "stub":
 else:
     log.warning("policy file not found; stub provider runs without RAG", extra={"path": settings.policy_path})
 
+# The agent's tools over MCP (B2): a real LLM provider consumes fetch_policy /
+# lookup_vendor / get_autonomy_thresholds remotely; the stub stays self-contained.
+tool_client = None
+if settings.mcp_server_url and settings.llm_provider != "stub":
+    from approvalflow_common.mcp_tools import MCPToolClient
+
+    tool_client = MCPToolClient(settings.mcp_server_url)
+    log.info("MCP tool client configured", extra={"url": settings.mcp_server_url})
+
 # Built at startup: a misconfigured provider (e.g. missing API key) crashes the boot
 # with a clear message instead of failing silently on the first request (M15).
-provider = get_provider(settings.llm_provider, retriever=policy_index)
+provider = get_provider(settings.llm_provider, retriever=policy_index, tool_client=tool_client)
 log.info("agent provider ready", extra={"provider": provider.name})
 
 

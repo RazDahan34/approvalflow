@@ -111,10 +111,27 @@ services:
       LLM_API_KEY: ${LLM_API_KEY:-}
       LLM_BASE_URL: ${LLM_BASE_URL:-}
       POLICY_PATH: /app/policy.md
+      MCP_SERVER_URL: http://mcp-server:8000/mcp
     volumes:
       # RAG source (N5): mounted, so a policy edit needs a restart, not a rebuild (F7).
       - ./policy.md:/app/policy.md:ro
-    depends_on: [redis]
+    depends_on: [redis, mcp-server]
+    networks: [approvalflow]
+
+  # ─────────────────────────── MCP server (B2) ──────────────────────
+  # The agent's tools over the Model Context Protocol. Internal-only (no host port,
+  # no Dapr sidecar): MCP *is* the transport here, and it stays on the tool plane —
+  # see ADR-0008.
+  mcp-server:
+    build:
+      context: .
+      dockerfile: services/mcp-server/Dockerfile
+    environment:
+      SERVICE_NAME: mcp-server
+      LOG_LEVEL: INFO
+      POLICY_PATH: /app/policy.md
+    volumes:
+      - ./policy.md:/app/policy.md:ro
     networks: [approvalflow]
 
   ai-decision-dapr:

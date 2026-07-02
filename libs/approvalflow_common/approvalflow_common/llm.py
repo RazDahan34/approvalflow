@@ -108,6 +108,7 @@ class LLMProvider:
         backoff_base: float = 0.5,
         transport: httpx.BaseTransport | None = None,
         retriever=None,  # PolicyIndex; when set, RAG feeds only relevant clauses (N5)
+        tool_client=None,  # MCPToolClient; when set, the agent runs a real tool loop (B2)
     ) -> None:
         if not api_key:
             raise ProviderError(f"LLM_API_KEY is required for provider '{name}' (fail fast, M15)")
@@ -118,14 +119,21 @@ class LLMProvider:
         self.max_retries = max_retries
         self.backoff_base = backoff_base
         self.retriever = retriever
+        self.tool_client = tool_client
         self._headers = {"Authorization": f"Bearer {api_key}"}
         self._transport = transport
 
     # ── the AgentProvider protocol ──
     def recommend(self, invoice: InvoiceSubmission) -> AgentRecommendation:
         clauses = self.retriever.retrieve(invoice) if self.retriever else None
-        system_prompt = build_system_prompt(clauses)
-        content = self._chat(system_prompt, invoice.model_dump_json(by_alias=True))
+        messages = [
+            {"role": "system", "content": build_system_prompt(clauses)},
+            {"role": "user", "content": invoice.model_dump_json(by_alias=True)},
+        ]
+        if self.tool_client:
+            content = self._run_tool_loop(messages)
+        else:
+            content = self._complete(messages, json_mode=True).get("content") or ""
         try:
             data = json.loads(content)
             rec = AgentRecommendation.model_validate(data)
@@ -136,16 +144,47 @@ class LLMProvider:
             rec.proposed_route = Route.human_review
         return rec
 
-    def _chat(self, system_prompt: str, user_content: str) -> str:
-        payload = {
-            "model": self.model,
-            "temperature": 0,
-            "response_format": {"type": "json_object"},
-            "messages": [
-                {"role": "system", "content": system_prompt},
-                {"role": "user", "content": user_content},
-            ],
-        }
+    def _run_tool_loop(self, messages: list[dict], max_rounds: int = 4) -> str:
+        """The agent loop (B2): the model may call MCP tools; we execute and feed back.
+
+        JSON mode is deliberately OFF while tools are enabled (they conflict on several
+        vendors); once the model stops calling tools we take its JSON, with one repair
+        round as a fallback.
+        """
+        tools = self.tool_client.tool_schemas()
+        for _ in range(max_rounds):
+            message = self._complete(messages, tools=tools)
+            tool_calls = message.get("tool_calls")
+            if not tool_calls:
+                content = (message.get("content") or "").strip()
+                if content.startswith("{"):
+                    return content
+                # Repair round: no tools, JSON forced.
+                messages.append({"role": "assistant", "content": content})
+                messages.append({"role": "user", "content": "Return ONLY the JSON object now."})
+                return self._complete(messages, json_mode=True).get("content") or ""
+            messages.append(message)
+            for call in tool_calls:
+                name = call["function"]["name"]
+                try:
+                    arguments = json.loads(call["function"].get("arguments") or "{}")
+                except json.JSONDecodeError:
+                    arguments = {}
+                try:
+                    result = self.tool_client.call(name, arguments)
+                except Exception as exc:
+                    raise ProviderError(f"MCP tool '{name}' failed: {exc}") from exc
+                log.info("agent tool call", extra={"tool": name, "args": arguments})
+                messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
+        raise ProviderError(f"{self.name} exceeded {max_rounds} tool rounds without a final answer")
+
+    def _complete(self, messages: list[dict], json_mode: bool = False, tools: list[dict] | None = None) -> dict:
+        """One chat-completions call with retry; returns the assistant *message*."""
+        payload: dict = {"model": self.model, "temperature": 0, "messages": messages}
+        if json_mode:
+            payload["response_format"] = {"type": "json_object"}
+        if tools:
+            payload["tools"] = tools
         url = f"{self.base_url}/chat/completions"
         last_error: Exception | None = None
 
@@ -172,14 +211,14 @@ class LLMProvider:
                 raise ProviderError(f"{self.name} responded {response.status_code}: {response.text[:200]}")
 
             try:
-                return response.json()["choices"][0]["message"]["content"]
+                return response.json()["choices"][0]["message"]
             except (KeyError, IndexError, json.JSONDecodeError) as exc:
                 raise ProviderError(f"{self.name} returned an unexpected response shape: {exc}") from exc
 
         raise ProviderError(f"{self.name} unavailable after {self.max_retries + 1} attempts: {last_error}")
 
 
-def build_llm_provider(provider_name: str, retriever=None) -> LLMProvider:
+def build_llm_provider(provider_name: str, retriever=None, tool_client=None) -> LLMProvider:
     """Build an LLMProvider purely from configuration (env / Dapr secrets)."""
     settings = get_settings()
     base_url = settings.llm_base_url or BASE_URLS.get(provider_name, "")
@@ -196,4 +235,5 @@ def build_llm_provider(provider_name: str, retriever=None) -> LLMProvider:
         timeout=settings.llm_timeout_seconds,
         max_retries=settings.llm_max_retries,
         retriever=retriever,
+        tool_client=tool_client,
     )

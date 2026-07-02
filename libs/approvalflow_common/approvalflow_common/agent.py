@@ -64,15 +64,16 @@ class StubProvider:
         )
 
 
-def get_provider(provider_name: str, retriever=None) -> AgentProvider:
+def get_provider(provider_name: str, retriever=None, tool_client=None) -> AgentProvider:
     """Factory — the LLM provider is selected purely by configuration (M15).
 
     `stub` is the deterministic offline provider (CI / eval); anything else resolves to
     an OpenAI-compatible endpoint (gemini / groq / openrouter, or a custom LLM_BASE_URL).
-    A `retriever` (PolicyIndex) enables RAG: only the relevant clauses enter the prompt.
+    A `retriever` (PolicyIndex) enables RAG (N5); a `tool_client` (MCP) enables the
+    agent's remote tool loop (B2).
     """
     if provider_name == "stub":
         return StubProvider()
     from .llm import build_llm_provider  # local import: keep the stub path dependency-light
 
-    return build_llm_provider(provider_name, retriever=retriever)
+    return build_llm_provider(provider_name, retriever=retriever, tool_client=tool_client)
