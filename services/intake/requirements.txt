@@ -1,0 +1,3 @@
+# The shared library (installed first in the Dockerfile) pulls fastapi, pydantic,
+# pydantic-settings and the Dapr SDK. Here we only add the ASGI server.
+uvicorn[standard]>=0.30
