@@ -9,8 +9,8 @@ Backed by its own Postgres-based Dapr state component (database-per-service): th
 same state API as everyone else, a different database behind it (ADR-0009).
 """
 
+from collections.abc import Callable
 from datetime import UTC, datetime
-from typing import Callable
 
 from approvalflow_common import create_app, get_logger, get_settings, set_correlation_id
 from approvalflow_common.state import DaprStateBackend

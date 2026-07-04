@@ -9,87 +9,291 @@
             --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
     * { box-sizing: border-box; }
     body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:20px 28px; border-bottom:1px solid var(--line); }
-    header h1 { margin:0; font-size:20px; } header p { margin:4px 0 0; color:var(--muted); font-size:13px; }
-    main { max-width:900px; margin:24px auto; padding:0 20px; display:grid; gap:20px;
-           grid-template-columns:1fr 1fr; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:12px; padding:18px; }
-    .card h2 { margin:0 0 12px; font-size:15px; color:var(--accent); }
+    header { padding:16px 28px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:18px; }
+    header h1 { margin:0; font-size:20px; }
+    header p { margin:0; color:var(--muted); font-size:12px; }
+    nav { display:flex; gap:6px; padding:10px 24px 0; }
+    nav button { background:none; border:1px solid var(--line); border-bottom:none; color:var(--muted);
+                 padding:9px 18px; border-radius:10px 10px 0 0; cursor:pointer; font-size:14px; }
+    nav button.active { background:var(--card); color:var(--accent); font-weight:600; }
+    main { max-width:1000px; margin:0 auto 40px; padding:0 20px; }
+    .tab { display:none; } .tab.active { display:block; }
+    .card { background:var(--card); border:1px solid var(--line); border-radius:0 12px 12px 12px; padding:18px; margin-top:0; }
+    .grid { display:grid; gap:16px; grid-template-columns:1fr 1fr; }
     label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
-    textarea, input { width:100%; background:#0b1220; color:var(--text); border:1px solid var(--line);
-                      border-radius:8px; padding:10px; font-family:ui-monospace, monospace; font-size:12px; }
-    textarea { height:230px; resize:vertical; }
-    button { margin-top:12px; background:var(--accent); color:#04283a; border:none; border-radius:8px;
-             padding:10px 16px; font-weight:600; cursor:pointer; }
-    button:hover { filter:brightness(1.08); }
-    pre { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:12px;
-          font-size:12px; white-space:pre-wrap; word-break:break-word; min-height:40px; margin-top:12px; }
-    .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:12px; font-weight:600; }
-    .full { grid-column:1 / -1; }
-    code { color:var(--accent); }
+    textarea, input, select { width:100%; background:#0b1220; color:var(--text); border:1px solid var(--line);
+                      border-radius:8px; padding:9px; font-family:ui-monospace, monospace; font-size:12px; }
+    textarea { height:250px; resize:vertical; }
+    button.action { margin-top:10px; background:var(--accent); color:#04283a; border:none; border-radius:8px;
+             padding:9px 16px; font-weight:600; cursor:pointer; }
+    button.action:hover { filter:brightness(1.08); }
+    button.small { padding:6px 12px; font-size:12px; margin-right:6px; }
+    button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
+    button.danger { background:var(--bad); color:#fff; }
+    pre, .log { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:12px;
+          font-size:12px; white-space:pre-wrap; word-break:break-word; min-height:36px; margin-top:10px; font-family:ui-monospace, monospace;}
+    .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:700; }
+    .pill.ok { background:#052e16; color:var(--ok); } .pill.warn { background:#3b2905; color:var(--warn); }
+    .pill.bad { background:#3f0d0d; color:var(--bad); } .pill.info { background:#082f49; color:var(--accent); }
+    .item { border:1px solid var(--line); border-radius:10px; padding:14px; margin-top:12px; background:#111c30; }
+    .item h3 { margin:0 0 6px; font-size:14px; }
+    .item .meta { color:var(--muted); font-size:12px; margin-bottom:8px; }
+    .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:16px; }
+    .stat { background:#111c30; border:1px solid var(--line); border-radius:10px; padding:14px; text-align:center; }
+    .stat .v { font-size:26px; font-weight:700; color:var(--accent); }
+    .stat .l { font-size:11px; color:var(--muted); margin-top:4px; }
+    .bar { height:10px; border-radius:6px; background:#0b1220; overflow:hidden; margin-top:6px; }
+    .bar > div { height:100%; background:var(--ok); }
+    .muted { color:var(--muted); font-size:12px; }
+    @media (max-width: 800px) { .grid { grid-template-columns:1fr; } .stats { grid-template-columns:repeat(2,1fr);} }
   </style>
 </head>
 <body>
   <header>
     <h1>ApprovalFlow</h1>
-    <p>Submit an invoice/expense and follow its decision. API gateway: <code id="api"></code></p>
+    <p>AI-assisted invoice &amp; expense approvals · gateway <code id="api"></code></p>
   </header>
+
+  <nav>
+    <button id="nav-submit" class="active" onclick="show('submit')">Submit</button>
+    <button id="nav-track" onclick="show('track')">Track</button>
+    <button id="nav-approvals" onclick="show('approvals')">Approvals</button>
+    <button id="nav-dashboard" onclick="show('dashboard')">Dashboard</button>
+  </nav>
+
   <main>
-    <section class="card">
-      <h2>1 · Submit</h2>
+    <!-- ─────────── Submit ─────────── -->
+    <section id="tab-submit" class="tab active"><div class="card">
+      <div class="muted">Pick a sample or paste your own invoice JSON:</div>
+      <div style="margin-top:8px">
+        <button class="action small ghost" onclick="fillSample('auto')">In-policy meal (auto)</button>
+        <button class="action small ghost" onclick="fillSample('escalate')">Client dinner $1,820 (escalates)</button>
+        <button class="action small ghost" onclick="fillSample('failure')">Hardware $9,500 + payment failure</button>
+      </div>
       <label>Invoice JSON</label>
       <textarea id="payload"></textarea>
-      <button onclick="submitInvoice()">Submit →</button>
+      <button class="action" onclick="submitInvoice()">Submit →</button>
       <pre id="submitOut">—</pre>
-    </section>
+    </div></section>
 
-    <section class="card">
-      <h2>2 · Track status</h2>
-      <label>Tracking id</label>
-      <input id="tid" placeholder="paste a tracking id" />
-      <button onclick="checkStatus()">Check status</button>
-      <pre id="statusOut">—</pre>
-    </section>
+    <!-- ─────────── Track ─────────── -->
+    <section id="tab-track" class="tab"><div class="card">
+      <div class="grid">
+        <div>
+          <label>Tracking id</label>
+          <input id="tid" placeholder="paste a tracking id" />
+          <button class="action" onclick="connectTracking()">Follow live (SSE)</button>
+          <div id="statusNow" style="margin-top:12px">—</div>
+          <div id="replyBox" style="display:none">
+            <label>The approver asked for more info — reply here:</label>
+            <input id="replyMsg" placeholder="e.g. Client is Acme Corp, deal Q3-042" />
+            <button class="action" onclick="sendReply()">Send reply</button>
+          </div>
+        </div>
+        <div>
+          <label>Live event stream</label>
+          <div class="log" id="eventLog">not connected</div>
+        </div>
+      </div>
+    </div></section>
+
+    <!-- ─────────── Approvals ─────────── -->
+    <section id="tab-approvals" class="tab"><div class="card">
+      <div class="muted">Only the items the system escalated — with the agent's recommendation, confidence and cited rules (F4).</div>
+      <div id="queue">loading…</div>
+    </div></section>
+
+    <!-- ─────────── Dashboard ─────────── -->
+    <section id="tab-dashboard" class="tab"><div class="card">
+      <div class="stats" id="statCards"></div>
+      <div class="grid">
+        <div>
+          <h3 style="margin:6px 0">Money: autonomous vs human-approved</h3>
+          <div id="moneySplit" class="muted">—</div>
+          <h3 style="margin:16px 0 6px">Autonomy proof (F10)</h3>
+          <pre id="proofBox">—</pre>
+        </div>
+        <div>
+          <h3 style="margin:6px 0">Department budgets</h3>
+          <div id="budgetBars">—</div>
+        </div>
+      </div>
+    </div></section>
   </main>
 
   <script>
     const API = "http://localhost:8080";
     document.getElementById("api").textContent = API;
+    let eventSource = null, refreshTimer = null;
 
-    const sample = {
-      submitter: "dana.cohen@northwind.example", department: "engineering-2026Q2",
-      vendor: "Bistro 19", vendorKnown: true, invoiceNumber: "NW-INV-7781",
-      currency: "USD", category: "meals", attendees: 1,
-      lineItems: [{ description: "Team lunch", quantity: 1, unitPrice: 38.89 }],
-      taxAmount: 3.11, total: 42.0, receiptPresent: true, date: "2026-05-12",
-      notes: "Solo working lunch."
+    const SAMPLES = {
+      auto: {
+        submitter: "dana.cohen@northwind.example", department: "engineering-2026Q2",
+        vendor: "Bistro 19", vendorKnown: true, invoiceNumber: "UI-" + Date.now(),
+        currency: "USD", category: "meals", attendees: 1,
+        lineItems: [{ description: "Team lunch", quantity: 1, unitPrice: 38.89 }],
+        taxAmount: 3.11, total: 42.0, receiptPresent: true, date: "2026-05-12",
+        notes: "Solo working lunch."
+      },
+      escalate: {
+        submitter: "lena.schmidt@northwind.example", department: "sales-2026Q2",
+        vendor: "The Rooftop Grill", vendorKnown: true, invoiceNumber: "UI-" + Date.now(),
+        currency: "USD", category: "meals", attendees: 11,
+        lineItems: [{ description: "Client dinner", quantity: 11, unitPrice: 160.0 }],
+        taxAmount: 60.0, total: 1820.0, receiptPresent: true, date: "2026-05-16",
+        notes: "Weekend (Saturday). No client name provided."
+      },
+      failure: {
+        submitter: "lena.schmidt@northwind.example", department: "engineering-2026Q2",
+        vendor: "RackSpace Supplies", vendorKnown: true, invoiceNumber: "UI-" + Date.now(),
+        currency: "USD", category: "hardware",
+        lineItems: [{ description: "Server rack + PSUs", quantity: 1, unitPrice: 9500.0 }],
+        taxAmount: 0.0, total: 9500.0, receiptPresent: true, date: "2026-05-16",
+        scenario: "payment-failure:journey-D",
+        notes: "Journey D: approve me in the Approvals tab, then watch the payment fail and the budget roll back."
+      }
     };
-    document.getElementById("payload").value = JSON.stringify(sample, null, 2);
+    fillSample("auto");
 
+    function fillSample(kind) {
+      const s = JSON.parse(JSON.stringify(SAMPLES[kind]));
+      s.invoiceNumber = "UI-" + Date.now();
+      document.getElementById("payload").value = JSON.stringify(s, null, 2);
+    }
+
+    function show(tab) {
+      for (const t of ["submit", "track", "approvals", "dashboard"]) {
+        document.getElementById("tab-" + t).classList.toggle("active", t === tab);
+        document.getElementById("nav-" + t).classList.toggle("active", t === tab);
+      }
+      clearInterval(refreshTimer);
+      if (tab === "approvals") { loadQueue(); refreshTimer = setInterval(loadQueue, 5000); }
+      if (tab === "dashboard") { loadDashboard(); refreshTimer = setInterval(loadDashboard, 5000); }
+    }
+
+    function pill(status) {
+      const cls = { paid: "ok", auto_approved: "ok", pending_approval: "warn", info_requested: "warn",
+                    payment_failed: "bad", rejected: "bad" }[status] || "info";
+      return `<span class="pill ${cls}">${status || "…"}</span>`;
+    }
+
+    // ── Submit ──
     async function submitInvoice() {
       const out = document.getElementById("submitOut");
       out.textContent = "submitting…";
       try {
-        const body = document.getElementById("payload").value;
         const r = await fetch(API + "/invoices", {
-          method: "POST", headers: { "Content-Type": "application/json" }, body
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: document.getElementById("payload").value
         });
         const data = await r.json();
         out.textContent = "HTTP " + r.status + "\n" + JSON.stringify(data, null, 2);
-        if (data.trackingId) document.getElementById("tid").value = data.trackingId;
+        if (data.trackingId) {
+          document.getElementById("tid").value = data.trackingId;
+          show("track"); connectTracking();
+        }
       } catch (e) { out.textContent = "error: " + e; }
     }
 
-    async function checkStatus() {
-      const out = document.getElementById("statusOut");
+    // ── Track (SSE) ──
+    async function connectTracking() {
       const tid = document.getElementById("tid").value.trim();
-      if (!tid) { out.textContent = "enter a tracking id first"; return; }
-      out.textContent = "checking…";
+      if (!tid) return;
+      if (eventSource) eventSource.close();
+      const log = document.getElementById("eventLog");
+      log.textContent = "";
       try {
-        const r = await fetch(API + "/invoices/" + tid + "/status");
-        const data = await r.json();
-        out.textContent = "HTTP " + r.status + "\n" + JSON.stringify(data, null, 2);
-      } catch (e) { out.textContent = "error: " + e; }
+        const s = await (await fetch(`${API}/invoices/${tid}/status`)).json();
+        renderStatus(s);
+        log.textContent += `[now] ${s.status} — ${s.reason || ""}\n`;
+      } catch { log.textContent = "status fetch failed\n"; }
+
+      eventSource = new EventSource(`${API}/invoices/${tid}/events`);
+      eventSource.onmessage = (m) => {
+        const e = JSON.parse(m.data);
+        renderStatus(e);
+        log.textContent += `[live] ${e.status} — ${e.reason || ""}\n`;
+        log.scrollTop = log.scrollHeight;
+        if (["paid", "payment_failed", "rejected", "duplicate"].includes(e.status)) eventSource.close();
+      };
+      eventSource.onerror = () => { log.textContent += "[stream closed]\n"; eventSource.close(); };
+    }
+
+    function renderStatus(s) {
+      document.getElementById("statusNow").innerHTML =
+        pill(s.status) + `<div class="muted" style="margin-top:8px">${s.reason || ""}</div>` +
+        (s.decidedBy ? `<div class="muted">decided by: <b>${s.decidedBy}</b></div>` : "");
+      document.getElementById("replyBox").style.display = s.status === "info_requested" ? "block" : "none";
+    }
+
+    async function sendReply() {
+      const tid = document.getElementById("tid").value.trim();
+      const message = document.getElementById("replyMsg").value.trim();
+      if (!tid || !message) return;
+      await fetch(`${API}/invoices/${tid}/reply`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ message })
+      });
+      document.getElementById("replyMsg").value = "";
+      connectTracking();
+    }
+
+    // ── Approvals ──
+    async function loadQueue() {
+      const box = document.getElementById("queue");
+      try {
+        const data = await (await fetch(API + "/approvals")).json();
+        const items = data.escalations || [];
+        if (!items.length) { box.innerHTML = `<div class="muted" style="margin-top:12px">Queue is empty — the boring majority handles itself (F6).</div>`; return; }
+        box.innerHTML = items.map(e => `
+          <div class="item">
+            <h3>${e.vendor || "?"} · $${(e.amountUsd ?? 0).toFixed(2)} <span class="muted">(${e.department || ""})</span></h3>
+            <div class="meta">${(e.ruleIds || []).map(r => `<span class="pill warn">${r}</span>`).join(" ")}</div>
+            <div class="meta">agent: <b>${e.agent?.proposed_route || "?"}</b> @ confidence ${(e.agent?.confidence ?? 0).toFixed(2)} — ${e.agent?.reason || ""}</div>
+            ${(e.reasons || []).map(r => `<div class="muted">• ${r}</div>`).join("")}
+            ${e.submitterReply ? `<div class="meta" style="margin-top:6px">reply from submitter: <b>${e.submitterReply}</b></div>` : ""}
+            <div style="margin-top:10px">
+              <input id="note-${e.trackingId}" placeholder="note / question for request-info" style="margin-bottom:8px" />
+              <button class="action small" onclick="act('${e.trackingId}','approve')">Approve</button>
+              <button class="action small danger" onclick="act('${e.trackingId}','reject')">Reject</button>
+              <button class="action small ghost" onclick="act('${e.trackingId}','request_info')">Request info</button>
+            </div>
+          </div>`).join("");
+      } catch (err) { box.textContent = "queue unavailable: " + err; }
+    }
+
+    async function act(tid, action) {
+      const note = document.getElementById("note-" + tid)?.value || "";
+      await fetch(`${API}/approvals/${tid}/decision`, {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ action, note, approver: "mgr.finance@ui" })
+      });
+      loadQueue();
+    }
+
+    // ── Dashboard ──
+    async function loadDashboard() {
+      try {
+        const m = await (await fetch(API + "/dashboard/metrics")).json();
+        document.getElementById("statCards").innerHTML = [
+          [m.submitted, "submitted"], [m.auto_approved, "auto-approved"],
+          [m.escalated, "escalated"], [(m.auto_rate * 100).toFixed(0) + "%", "autonomy rate"],
+          [m.paid, "paid"], [m.payment_failed, "payment failed"],
+          [m.rejected_by_router, "rejected"], [(m.escalation_rate * 100).toFixed(0) + "%", "escalation rate"],
+        ].map(([v, l]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
+        document.getElementById("moneySplit").innerHTML =
+          `autonomous: <b>$${m.money_auto_usd.toFixed(2)}</b> · human-approved: <b>$${m.money_human_usd.toFixed(2)}</b>`;
+        const proof = await (await fetch(API + "/audit/autonomy-proof")).json();
+        document.getElementById("proofBox").textContent = JSON.stringify(proof, null, 2);
+        const b = await (await fetch(API + "/budgets")).json();
+        document.getElementById("budgetBars").innerHTML = (b.budgets || []).map(x => {
+          const pct = Math.min(100, (x.reserved / x.total) * 100).toFixed(1);
+          return `<div style="margin-bottom:12px">
+            <div class="muted">${x.department} — reserved $${x.reserved.toFixed(2)} of $${x.total.toFixed(2)} (available $${x.available.toFixed(2)})</div>
+            <div class="bar"><div style="width:${pct}%"></div></div>
+          </div>`;
+        }).join("");
+      } catch (err) { document.getElementById("statCards").innerHTML = `<div class="muted">dashboard unavailable: ${err}</div>`; }
     }
   </script>
 </body>
