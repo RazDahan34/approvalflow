@@ -266,6 +266,81 @@ services:
     depends_on: [gateway, redis, placement]
     network_mode: "service:gateway"
 
+  # ──────────────────────────── Notification ────────────────────────
+  notification:
+    build:
+      context: .
+      dockerfile: services/notification/Dockerfile
+    environment:
+      SERVICE_NAME: notification
+      LOG_LEVEL: INFO
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  notification-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "notification"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [notification, redis, placement]
+    network_mode: "service:notification"
+
+  # ─────────────────────────────── Audit ────────────────────────────
+  audit:
+    build:
+      context: .
+      dockerfile: services/audit/Dockerfile
+    environment:
+      SERVICE_NAME: audit
+      LOG_LEVEL: INFO
+      STATESTORE_NAME: statestore-audit # postgres-backed component (ADR-0009)
+    depends_on:
+      redis:
+        condition: service_started
+      postgres:
+        condition: service_healthy
+    networks: [approvalflow]
+
+  audit-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "audit"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [audit, redis, placement, postgres]
+    network_mode: "service:audit"
+
   # ─────────────────────────────── UI ───────────────────────────────
   ui:
     build:
