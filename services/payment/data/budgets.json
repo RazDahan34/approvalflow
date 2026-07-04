@@ -1,0 +1,8 @@
+{
+  "_about": "Department budgets seeded at startup (values from sample-invoices.json). Seeding is create-only, so restarts never reset live balances.",
+  "budgets": {
+    "marketing-2026Q2": 1000.0,
+    "engineering-2026Q2": 50000.0,
+    "sales-2026Q2": 20000.0
+  }
+}
