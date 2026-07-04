@@ -1,0 +1,2 @@
+# The shared library provides fastapi, pydantic and the Dapr SDK.
+uvicorn[standard]>=0.30
