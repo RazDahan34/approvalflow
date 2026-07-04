@@ -54,6 +54,10 @@ class InvoiceSubmission(BaseModel):
     receipt_present: bool = Field(default=False, alias="receiptPresent")
     date: str
     notes: str | None = None
+    # Chaos/testing hook carried by the shipped fixtures (e.g. "payment-failure:journey-D"):
+    # the payment service fails deterministically when it says so. Documented, never
+    # consulted by the router — it cannot change a decision, only simulate downstream faults.
+    scenario: str | None = None
 
     def idempotency_key(self) -> str:
         """Same vendor + invoiceNumber + total => the same submission (GLOBAL-DUP)."""

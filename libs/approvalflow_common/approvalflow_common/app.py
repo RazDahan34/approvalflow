@@ -14,15 +14,19 @@ from .logging import configure_logging, get_logger
 from .middleware import CorrelationIdMiddleware
 
 
-def create_app(service_name: str, **kwargs) -> FastAPI:
+def create_app(service_name: str, lifespan_extra=None, **kwargs) -> FastAPI:
     settings = get_settings()
     configure_logging(service_name, settings.log_level)
     log = get_logger(service_name)
 
     @asynccontextmanager
-    async def lifespan(_: FastAPI):
+    async def lifespan(app_: FastAPI):
         log.info("service started", extra={"event": "startup", "svc": service_name})
-        yield
+        if lifespan_extra is not None:
+            async with lifespan_extra(app_):
+                yield
+        else:
+            yield
         log.info("service stopping", extra={"event": "shutdown", "svc": service_name})
 
     app = FastAPI(title=f"ApprovalFlow · {service_name}", lifespan=lifespan, **kwargs)
