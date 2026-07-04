@@ -1,2 +1,4 @@
 # The shared library provides fastapi, pydantic, the Dapr SDK and dapr-ext-fastapi.
 uvicorn[standard]>=0.30
+dapr-ext-workflow>=1.14
+

@@ -1,146 +1,126 @@
 """Orchestrator service (Manager).
 
-Subscribes to `invoice.submitted`, obtains the agent's *advisory* recommendation via
-Dapr service invocation (ai-decision), then runs the DETERMINISTIC ROUTER for the
-binding decision, persists the decision record, and publishes `invoice.decided`.
-
-The agent recommends; this service decides (M12/F10). The payment saga and the durable
-HITL pause/resume are layered on in Phase 3.
+Hosts the durable invoice workflow (see workflow.py) and the approver API:
+- `invoice.submitted` -> schedules a workflow instance (id = tracking id, so a
+  redelivered event cannot start a second instance — M10);
+- GET /escalations -> the approver queue with the agent's rationale (F4);
+- POST /escalations/{id}/decision -> approve / reject / request_info resumes the
+  durably-paused workflow exactly where it stopped (F5, M11);
+- POST /submissions/{id}/reply -> the submitter's answer re-enters the loop.
 """
 
-from datetime import UTC, datetime
+from contextlib import asynccontextmanager
 
-from approvalflow_common import (
-    AgentRecommendation,
-    PolicyConfig,
-    create_app,
-    get_correlation_id,
-    get_logger,
-    get_settings,
-    route_decision,
-    set_correlation_id,
-)
-from approvalflow_common.dapr_client import get_state, invoke_service, publish_event, save_state
-from approvalflow_common.schemas import InvoiceSubmission, Route
+from approvalflow_common import create_app, get_logger, get_settings, set_correlation_id
+from approvalflow_common.state import DaprStateBackend
+from approvalflow_common.topics import INVOICE_SUBMITTED
 from dapr.ext.fastapi import DaprApp
-from fastapi import Request
+from dapr.ext.workflow import DaprWorkflowClient
+from fastapi import FastAPI, HTTPException, Request
+from pydantic import BaseModel
+
+from .workflow import ESCALATION_INDEX_KEY, invoice_lifecycle, wfr
 
 SERVICE = "orchestrator"
-DECIDED_TOPIC = "invoice.decided"
 
 settings = get_settings()
-app = create_app(SERVICE)
-dapr_app = DaprApp(app)
 log = get_logger(SERVICE)
 
-# Plain-language status per route (F2): submitters see words, not enum values.
-STATUS_BY_ROUTE = {
-    Route.auto_approve: "auto_approved",
-    Route.human_review: "pending_approval",
-    Route.reject: "rejected",
-    Route.duplicate: "duplicate",
-}
+
+@asynccontextmanager
+async def workflow_lifespan(_: FastAPI):
+    wfr.start()
+    log.info("workflow runtime started", extra={"event": "workflow_runtime_up"})
+    yield
+    wfr.shutdown()
 
 
-def _get_recommendation(invoice: InvoiceSubmission, tracking_id: str) -> AgentRecommendation:
-    """Ask the agent. On ANY failure return a zero-confidence advisory -> the router
-    escalates to a human (fail closed). Loud logs; never a silent fallback (M15)."""
-    try:
-        response = invoke_service(
-            "ai-decision", "recommend", "POST", invoice.model_dump(by_alias=True), timeout=60
-        )
-        if response.status_code == 200:
-            return AgentRecommendation.model_validate(response.json())
-        log.error(
-            "agent returned an error status",
-            extra={"status": response.status_code, "trackingId": tracking_id},
-        )
-    except Exception as exc:
-        log.error("agent invocation failed", extra={"error": str(exc), "trackingId": tracking_id})
-    return AgentRecommendation(
-        proposed_route=Route.human_review,
-        confidence=0.0,
-        category=invoice.category,
-        reason="The automated analyst was unavailable, so a person will review this item.",
-    )
+app = create_app(SERVICE, lifespan_extra=workflow_lifespan)
+dapr_app = DaprApp(app)
 
 
-@dapr_app.subscribe(pubsub="pubsub", topic="invoice.submitted")
+class ApproverDecision(BaseModel):
+    action: str  # approve | reject | request_info
+    note: str = ""
+    approver: str = "approver"
+
+
+class SubmitterReply(BaseModel):
+    message: str
+
+
+def _client() -> DaprWorkflowClient:
+    return DaprWorkflowClient()
+
+
+@dapr_app.subscribe(pubsub="pubsub", topic=INVOICE_SUBMITTED)
 async def on_invoice_submitted(request: Request) -> dict:
     envelope = await request.json()
     data = envelope.get("data", envelope)
     set_correlation_id(data.get("correlationId", ""))
     tracking_id = data.get("trackingId", "")
-
-    # Redelivered event? The decision record makes reprocessing a no-op (M10).
-    if get_state(f"decision:{tracking_id}"):
-        log.info("duplicate delivery ignored", extra={"trackingId": tracking_id})
-        return {"success": True}
-
     try:
-        invoice = InvoiceSubmission.model_validate(data["invoice"])
-    except Exception as exc:
-        log.error("malformed invoice event", extra={"trackingId": tracking_id, "error": str(exc)})
-        save_state(
-            f"status:{tracking_id}",
-            {"status": "error", "reason": "The submission event was malformed; contact support."},
+        _client().schedule_new_workflow(
+            workflow=invoice_lifecycle, input=data, instance_id=tracking_id
         )
-        return {"success": True}
-
-    recommendation = _get_recommendation(invoice, tracking_id)
-
-    config = PolicyConfig(
-        ceiling_usd=settings.autonomy_ceiling_usd,
-        confidence_threshold=settings.autonomy_confidence,
-    )
-    decision = route_decision(invoice, recommendation, config)
-
-    decided_at = datetime.now(UTC).isoformat()
-    save_state(
-        f"decision:{tracking_id}",
-        {
-            "trackingId": tracking_id,
-            "correlationId": get_correlation_id(),
-            "decidedAt": decided_at,
-            "route": decision.route.value,
-            "autonomous": decision.autonomous,
-            "amountUsd": decision.amount_usd,
-            "ruleIds": decision.rule_ids,
-            "reasons": decision.reasons,
-            "agent": recommendation.model_dump(),
-        },
-    )
-    save_state(
-        f"status:{tracking_id}",
-        {"status": STATUS_BY_ROUTE[decision.route], "reason": decision.plain_reason},
-    )
-    publish_event(
-        DECIDED_TOPIC,
-        {
-            "trackingId": tracking_id,
-            "correlationId": get_correlation_id(),
-            "decidedAt": decided_at,
-            "route": decision.route.value,
-            "autonomous": decision.autonomous,
-            "amountUsd": decision.amount_usd,
-            "ruleIds": decision.rule_ids,
-            "reason": decision.plain_reason,
-            "vendor": invoice.vendor,
-            "department": invoice.department,
-        },
-    )
-
-    log.info(
-        "decision routed",
-        extra={
-            "event": "decided",
-            "trackingId": tracking_id,
-            "route": decision.route.value,
-            "autonomous": decision.autonomous,
-            "amountUsd": decision.amount_usd,
-            "ruleIds": decision.rule_ids,
-            "agentProposed": recommendation.proposed_route.value,
-            "agentConfidence": recommendation.confidence,
-        },
-    )
+        log.info("workflow scheduled", extra={"event": "scheduled", "trackingId": tracking_id})
+    except Exception as exc:
+        detail = str(exc)
+        if "already exists" in detail.lower():
+            # Redelivered event; the instance id makes scheduling exactly-once (M10).
+            log.info("duplicate delivery ignored", extra={"trackingId": tracking_id})
+        else:
+            # Real failure (e.g. infrastructure): never swallow it (M15) — ask Dapr to
+            # redeliver so the invoice is not lost; scheduling stays idempotent.
+            log.error(
+                "workflow scheduling failed; requesting redelivery",
+                extra={"trackingId": tracking_id, "error": detail[:200]},
+            )
+            return {"status": "RETRY"}
     return {"success": True}
+
+
+@app.get("/escalations")
+def list_escalations() -> dict:
+    """The approver queue (F4): only escalated items, each with the agent's rationale."""
+    backend = DaprStateBackend(settings.statestore_name)
+    index, _ = backend.get(ESCALATION_INDEX_KEY)
+    entries = []
+    for tracking_id in (index or {}).get("ids", []):
+        entry, _ = backend.get(f"escalation:{tracking_id}")
+        if entry:
+            entries.append(entry)
+    return {"escalations": entries}
+
+
+@app.post("/escalations/{tracking_id}/decision")
+def approver_decision(tracking_id: str, decision: ApproverDecision) -> dict:
+    if decision.action not in ("approve", "reject", "request_info"):
+        raise HTTPException(status_code=422, detail="action must be approve | reject | request_info")
+    if decision.action == "request_info" and not decision.note.strip():
+        raise HTTPException(status_code=422, detail="request_info needs a note with the question")
+    try:
+        _client().raise_workflow_event(
+            instance_id=tracking_id,
+            event_name="approver_decision",
+            data=decision.model_dump(),
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"no waiting workflow for '{tracking_id}'") from exc
+    log.info(
+        "approver decision raised",
+        extra={"event": "approver_decision", "trackingId": tracking_id, "action": decision.action},
+    )
+    return {"trackingId": tracking_id, "action": decision.action, "accepted": True}
+
+
+@app.post("/submissions/{tracking_id}/reply")
+def submitter_reply(tracking_id: str, reply: SubmitterReply) -> dict:
+    try:
+        _client().raise_workflow_event(
+            instance_id=tracking_id, event_name="submitter_reply", data=reply.model_dump()
+        )
+    except Exception as exc:
+        raise HTTPException(status_code=404, detail=f"no waiting workflow for '{tracking_id}'") from exc
+    log.info("submitter reply raised", extra={"event": "submitter_reply", "trackingId": tracking_id})
+    return {"trackingId": tracking_id, "accepted": True}
