@@ -1,0 +1,34 @@
+apiVersion: dapr.io/v1alpha1
+kind: Resiliency
+metadata:
+  name: approvalflow-resiliency
+spec:
+  # Declarative resilience (N3): every sidecar retries transient invocation failures
+  # (e.g. a peer container being replaced) instead of surfacing them to callers.
+  policies:
+    retries:
+      invocationRetry:
+        policy: constant
+        duration: 2s
+        maxRetries: 3
+    circuitBreakers:
+      invocationCB:
+        # Demonstrative breaker: opens only on a sustained outage (well beyond the
+        # retry window) so patient retries during a restart are never cut short.
+        maxRequests: 1
+        timeout: 30s
+        trip: consecutiveFailures > 30
+  targets:
+    apps:
+      orchestrator:
+        retry: invocationRetry
+        circuitBreaker: invocationCB
+      intake:
+        retry: invocationRetry
+        circuitBreaker: invocationCB
+      payment:
+        retry: invocationRetry
+        circuitBreaker: invocationCB
+      ai-decision:
+        retry: invocationRetry
+        circuitBreaker: invocationCB

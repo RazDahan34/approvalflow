@@ -25,6 +25,34 @@ services:
     restart: unless-stopped
     networks: [approvalflow]
 
+  # Dapr Workflow persists its timers/reminders through the Scheduler service.
+  scheduler:
+    image: daprio/dapr:1.18.1
+    command: ["./scheduler", "--port", "50007", "--etcd-data-dir", "/data"]
+    # The dapr image runs as a non-root user, but the named volume mounts root-owned;
+    # local-dev only, so run the scheduler as root to let etcd create its data dir.
+    user: root
+    restart: unless-stopped
+    volumes:
+      - scheduler-data:/data
+    networks: [approvalflow]
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: approvalflow
+      POSTGRES_PASSWORD: approvalflow
+      POSTGRES_DB: approvalflow
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U approvalflow"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+    networks: [approvalflow]
+
   # ───────────────────────────── Intake ─────────────────────────────
   intake:
     build:
@@ -33,6 +61,7 @@ services:
     environment:
       SERVICE_NAME: intake
       LOG_LEVEL: INFO
+      STATESTORE_NAME: statestore-intake
     # No host port — the API gateway is the single external entry point (M6).
     depends_on: [redis]
     networks: [approvalflow]
@@ -69,7 +98,10 @@ services:
     environment:
       SERVICE_NAME: orchestrator
       LOG_LEVEL: INFO
-    depends_on: [redis]
+      STATESTORE_NAME: statestore-orchestrator
+      AUTONOMY_CEILING_USD: ${AUTONOMY_CEILING_USD:-500}
+      AUTONOMY_CONFIDENCE: ${AUTONOMY_CONFIDENCE:-0.80}
+    depends_on: [redis, placement]
     networks: [approvalflow]
 
   orchestrator-dapr:
@@ -90,10 +122,12 @@ services:
       - "/config/config.yaml"
       - "-placement-host-address"
       - "placement:50006"
+      - "-scheduler-host-address"
+      - "scheduler:50007"
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
-    depends_on: [orchestrator, redis, placement]
+    depends_on: [orchestrator, redis, placement, scheduler]
     network_mode: "service:orchestrator"
 
   # ─────────────────────────── AI-Decision ──────────────────────────
@@ -117,6 +151,42 @@ services:
       - ./policy.md:/app/policy.md:ro
     depends_on: [redis, mcp-server]
     networks: [approvalflow]
+
+  # ───────────────────────────── Payment ────────────────────────────
+  payment:
+    build:
+      context: .
+      dockerfile: services/payment/Dockerfile
+    environment:
+      SERVICE_NAME: payment
+      LOG_LEVEL: INFO
+      STATESTORE_NAME: statestore-payment
+    depends_on: [redis]
+    networks: [approvalflow]
+
+  payment-dapr:
+    image: daprio/daprd:1.18.1
+    command:
+      - "./daprd"
+      - "-app-id"
+      - "payment"
+      - "-app-port"
+      - "8000"
+      - "-dapr-http-port"
+      - "3500"
+      - "-dapr-grpc-port"
+      - "50001"
+      - "-resources-path"
+      - "/components"
+      - "-config"
+      - "/config/config.yaml"
+      - "-placement-host-address"
+      - "placement:50006"
+    volumes:
+      - ./dapr/components:/components
+      - ./dapr/config.yaml:/config/config.yaml
+    depends_on: [payment, redis, placement]
+    network_mode: "service:payment"
 
   # ─────────────────────────── MCP server (B2) ──────────────────────
   # The agent's tools over the Model Context Protocol. Internal-only (no host port,
@@ -166,7 +236,7 @@ services:
     environment:
       SERVICE_NAME: gateway
       LOG_LEVEL: INFO
-      GATEWAY_RATE_LIMIT: "100/minute"
+      GATEWAY_RATE_LIMIT: ${GATEWAY_RATE_LIMIT:-300/minute}
     ports:
       - "8080:8000" # the ONLY external entry point
     depends_on: [redis]
@@ -207,5 +277,9 @@ services:
 
 networks:
   approvalflow:
+
+volumes:
+  pgdata:
+  scheduler-data:
 
 
