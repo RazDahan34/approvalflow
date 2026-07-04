@@ -68,6 +68,9 @@ services:
 
   intake-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -87,6 +90,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [intake, redis, placement]
     network_mode: "service:intake"
 
@@ -106,6 +110,9 @@ services:
 
   orchestrator-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -127,6 +134,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [orchestrator, redis, placement, scheduler]
     network_mode: "service:orchestrator"
 
@@ -166,6 +174,9 @@ services:
 
   payment-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -185,6 +196,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [payment, redis, placement]
     network_mode: "service:payment"
 
@@ -206,6 +218,9 @@ services:
 
   ai-decision-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -225,6 +240,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [ai-decision, redis, placement]
     network_mode: "service:ai-decision"
 
@@ -244,6 +260,9 @@ services:
 
   gateway-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -263,6 +282,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [gateway, redis, placement]
     network_mode: "service:gateway"
 
@@ -279,6 +299,9 @@ services:
 
   notification-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -298,6 +321,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [notification, redis, placement]
     network_mode: "service:notification"
 
@@ -319,6 +343,9 @@ services:
 
   audit-dapr:
     image: daprio/daprd:1.18.1
+    # Local-dev only: the shared name-resolution volume is root-owned (same story as
+    # the scheduler's data dir), and daprd runs as non-root by default.
+    user: root
     command:
       - "./daprd"
       - "-app-id"
@@ -338,6 +365,7 @@ services:
     volumes:
       - ./dapr/components:/components
       - ./dapr/config.yaml:/config/config.yaml
+      - dapr-nr:/nameresolution
     depends_on: [audit, redis, placement, postgres]
     network_mode: "service:audit"
 
@@ -356,5 +384,7 @@ networks:
 volumes:
   pgdata:
   scheduler-data:
+  # Shared registry for Dapr's sqlite name-resolution (see dapr/config.yaml).
+  dapr-nr:
 
 

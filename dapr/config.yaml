@@ -8,3 +8,12 @@ spec:
     samplingRate: "1"
     zipkin:
       endpointAddress: http://zipkin:9411/api/v2/spans
+  # mDNS (the self-hosted default) proved unreliable on Docker bridge networks under
+  # container churn — its resolver can die and never recover. The sqlite resolver is
+  # Dapr's supported answer: every sidecar registers in a shared database file and
+  # resolution is a query. Config-only change, no code touched.
+  nameResolution:
+    component: "sqlite"
+    version: "v1"
+    configuration:
+      connectionString: "/nameresolution/nr.db"
