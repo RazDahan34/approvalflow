@@ -38,6 +38,10 @@ class Settings(BaseSettings):
     # ── MCP tool server (B2); empty = agent runs without remote tools ──
     mcp_server_url: str = ""
 
+    # ── Live thresholds via the Dapr configuration store (M13/F7) ──
+    config_store_name: str = "configstore"
+    policy_cache_ttl_seconds: float = 10.0
+
     # ── Autonomy thresholds (the dilemma) — externally configurable (M13/F7).
     #    The envelope; per-category tiers live in PolicyConfig / Dapr config. ──
     autonomy_ceiling_usd: float = 500.0

@@ -25,6 +25,23 @@ services:
     restart: unless-stopped
     networks: [approvalflow]
 
+  # One-shot: seed the live autonomy posture into the configuration store (M13/F7).
+  # Values match ADR-0006; change any of them at runtime with `redis-cli SET`.
+  config-seed:
+    image: redis:7-alpine
+    command: >
+      redis-cli -h redis MSET
+      autonomy.ceiling_usd 500
+      autonomy.confidence 0.80
+      autonomy.tier.meals 250
+      autonomy.tier.travel 500
+      autonomy.tier.saas 200
+      autonomy.tier.hardware 350
+      autonomy.tier.other 100
+    depends_on: [redis]
+    restart: "no"
+    networks: [approvalflow]
+
   # Dapr Workflow persists its timers/reminders through the Scheduler service.
   scheduler:
     image: daprio/dapr:1.18.1
