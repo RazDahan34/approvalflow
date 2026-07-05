@@ -191,7 +191,9 @@ class LLMProvider:
                     result = self.tool_client.call(name, arguments)
                 except Exception as exc:
                     raise ProviderError(f"MCP tool '{name}' failed: {exc}") from exc
-                log.info("agent tool call", extra={"tool": name, "args": arguments})
+                # NB: `args` is a reserved LogRecord attribute — never use it as an
+                # extra key or logging raises KeyError.
+                log.info("agent tool call", extra={"tool": name, "tool_args": arguments})
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
         raise ProviderError(f"{self.name} exceeded {max_rounds} tool rounds without a final answer")
 
