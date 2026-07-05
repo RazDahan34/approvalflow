@@ -21,6 +21,8 @@ REPORT = ROOT / "docs" / "eval-report.md"
 
 
 def main() -> int:
+    from production_mix import simulate  # local import: lives next to this script
+
     results = evaluate_fixtures(load_fixtures(FIXTURES), get_provider("stub"), PolicyConfig())
     decided = [r for r in results if not r.pipeline]
     passed = sum(r.passed for r in decided)
@@ -35,6 +37,23 @@ def main() -> int:
             mark = "✅" if r.passed else "❌"
             rows.append(f"| {r.id} | `{r.expected}` | `{r.predicted}` | {mark} | {', '.join(r.rule_ids) or '—'} |")
 
+    mix = simulate(get_provider("stub"), PolicyConfig())
+    mix_section = (
+        "\n\n## Production-mix simulation (realistic traffic mix)\n\n"
+        "The fixtures above are deliberately edge-heavy — they exist to exercise every decision "
+        "path, so their auto/human split says nothing about production traffic. This section runs "
+        f"a **seeded synthetic mix of {mix['count']} invoices** shaped like real enterprise expense "
+        "traffic (mostly small routine meals/rides/subscriptions, a tail of big-ticket and messy "
+        "items — assumptions visible in `eval/production_mix.py`) through the same agent + router:\n\n"
+        "| Route | Share |\n|---|---|\n"
+        f"| auto_approve (no human) | **{mix['auto_rate']:.1%}** |\n"
+        f"| human_review | {mix['human_rate']:.1%} |\n"
+        f"| reject | {mix['reject_rate']:.1%} |\n\n"
+        f"Money signed autonomously: ${mix['autonomous_usd']:,.0f} vs ${mix['human_usd']:,.0f} routed "
+        "to people — the boring majority is automated while every large or messy item still meets "
+        "a human.\n"
+    )
+
     report = (
         "# Eval report\n\n"
         "Deterministic offline evaluation: the stub agent + the router over the "
@@ -45,7 +64,8 @@ def main() -> int:
         f"{len(results) - total} fixture(s) are decided by a stateful pipeline stage and shown as _pipeline_.\n\n"
         f"Shipped **auto-approve** fixtures exercised with no human: **{autos}**.\n\n"
         + "\n".join(rows)
-        + "\n\n_Regenerate with_ `python eval/run_eval.py`.\n"
+        + mix_section
+        + "\n_Regenerate with_ `python eval/run_eval.py`.\n"
     )
     REPORT.write_text(report, encoding="utf-8")
 
@@ -54,6 +74,10 @@ def main() -> int:
         status = "pipeline" if r.pipeline else ("PASS" if r.passed else "FAIL")
         print(f"{r.id:10} expected={r.expected:13} got={str(got):13} {status}")
     print(f"\nrouter-decided: {passed}/{total} passed  |  report -> {REPORT.relative_to(ROOT)}")
+    print(
+        f"production mix ({mix['count']} invoices): auto {mix['auto_rate']:.1%} · "
+        f"human {mix['human_rate']:.1%} · reject {mix['reject_rate']:.1%}"
+    )
     return 0 if passed == total else 1
 
 
