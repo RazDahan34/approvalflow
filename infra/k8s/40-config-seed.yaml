@@ -1,0 +1,34 @@
+# One-shot Job: seed the live autonomy posture into the configuration store —
+# the k8s twin of the compose `config-seed` service (values = ADR-0006).
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: config-seed
+  namespace: approvalflow
+spec:
+  backoffLimit: 4
+  template:
+    spec:
+      restartPolicy: OnFailure
+      containers:
+        - name: seed
+          image: redis:7-alpine
+          command:
+            - redis-cli
+            - -h
+            - redis.approvalflow
+            - MSET
+            - autonomy.ceiling_usd
+            - "500"
+            - autonomy.confidence
+            - "0.80"
+            - autonomy.tier.meals
+            - "250"
+            - autonomy.tier.travel
+            - "500"
+            - autonomy.tier.saas
+            - "200"
+            - autonomy.tier.hardware
+            - "350"
+            - autonomy.tier.other
+            - "100"

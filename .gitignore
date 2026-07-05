@@ -43,3 +43,6 @@ Thumbs.db
 
 # ── Misc ──
 *.tmp
+
+# local secret files (no leading dot)
+env.local

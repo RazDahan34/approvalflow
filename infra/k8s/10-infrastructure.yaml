@@ -1,0 +1,85 @@
+# Backing infrastructure: redis (state + pub/sub + config), postgres (audit store),
+# zipkin (traces). The Dapr control plane itself comes from `dapr init -k`
+# (placement + scheduler + operator + sentry) — see the README in this folder.
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: redis
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: redis } }
+  template:
+    metadata:
+      labels: { app: redis }
+    spec:
+      containers:
+        - name: redis
+          image: redis:7-alpine
+          ports: [{ containerPort: 6379 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: redis
+  namespace: approvalflow
+spec:
+  selector: { app: redis }
+  ports: [{ port: 6379 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: postgres
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: postgres } }
+  template:
+    metadata:
+      labels: { app: postgres }
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:16-alpine
+          ports: [{ containerPort: 5432 }]
+          env:
+            - { name: POSTGRES_USER, value: approvalflow }
+            - name: POSTGRES_PASSWORD
+              valueFrom: { secretKeyRef: { name: approvalflow-secrets, key: postgres-password } }
+            - { name: POSTGRES_DB, value: audit }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: postgres
+  namespace: approvalflow
+spec:
+  selector: { app: postgres }
+  ports: [{ port: 5432 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: zipkin
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: zipkin } }
+  template:
+    metadata:
+      labels: { app: zipkin }
+    spec:
+      containers:
+        - name: zipkin
+          image: openzipkin/zipkin:3
+          ports: [{ containerPort: 9411 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: zipkin
+  namespace: approvalflow
+spec:
+  selector: { app: zipkin }
+  ports: [{ port: 9411 }]

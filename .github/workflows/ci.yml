@@ -35,3 +35,43 @@ jobs:
 
       - name: Eval harness (fixtures -> agent -> router)
         run: python eval/run_eval.py
+
+  # ── CD (N2): on green main, build & publish every image — no manual release step ──
+  publish:
+    name: Publish images (${{ matrix.name }})
+    needs: quality
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { name: gateway, context: ., dockerfile: services/gateway/Dockerfile }
+          - { name: intake, context: ., dockerfile: services/intake/Dockerfile }
+          - { name: orchestrator, context: ., dockerfile: services/orchestrator/Dockerfile }
+          - { name: ai-decision, context: ., dockerfile: services/ai-decision/Dockerfile }
+          - { name: payment, context: ., dockerfile: services/payment/Dockerfile }
+          - { name: notification, context: ., dockerfile: services/notification/Dockerfile }
+          - { name: audit, context: ., dockerfile: services/audit/Dockerfile }
+          - { name: mcp-server, context: ., dockerfile: services/mcp-server/Dockerfile }
+          - { name: ui, context: ./ui, dockerfile: ./ui/Dockerfile }
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.context }}
+          file: ${{ matrix.dockerfile }}
+          push: true
+          tags: |
+            ghcr.io/${{ github.repository }}-${{ matrix.name }}:latest
+            ghcr.io/${{ github.repository }}-${{ matrix.name }}:${{ github.sha }}
