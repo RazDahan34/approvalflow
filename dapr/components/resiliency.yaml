@@ -29,6 +29,6 @@ spec:
       payment:
         retry: invocationRetry
         circuitBreaker: invocationCB
-      ai-decision:
-        retry: invocationRetry
-        circuitBreaker: invocationCB
+      # ai-decision is deliberately NOT retried here: an agent error means "analyst
+      # unavailable", and the orchestrator fail-closes to a human immediately. Retrying
+      # a rate-limited LLM only burns quota and delays the safe fallback.

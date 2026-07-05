@@ -130,6 +130,9 @@ class LLMProvider:
             {"role": "system", "content": build_system_prompt(clauses)},
             {"role": "user", "content": invoice.model_dump_json(by_alias=True)},
         ]
+        # Tools stay available (B2) but are not forced: with the vendor flag and the
+        # retrieved clauses already in context, the model answers in one call — fast
+        # and free-tier friendly. It may still call a tool when it needs one.
         if self.tool_client:
             content = self._run_tool_loop(messages)
         else:
@@ -144,26 +147,29 @@ class LLMProvider:
             rec.proposed_route = Route.human_review
         return rec
 
-    def _run_tool_loop(self, messages: list[dict], max_rounds: int = 4) -> str:
+    def _run_tool_loop(self, messages: list[dict], max_rounds: int = 3) -> str:
         """The agent loop (B2): the model may call MCP tools; we execute and feed back.
 
-        JSON mode is deliberately OFF while tools are enabled (they conflict on several
-        vendors); once the model stops calling tools we take its JSON, with one repair
-        round as a fallback.
+        Convergence is guaranteed: on the final round we withhold the tools and force
+        JSON mode, so the model must answer instead of looping. (JSON mode stays OFF
+        while tools are offered — several OpenAI-compatible backends reject the combo.)
         """
         tools = self.tool_client.tool_schemas()
-        for _ in range(max_rounds):
-            message = self._complete(messages, tools=tools)
+        for round_num in range(max_rounds):
+            last_round = round_num == max_rounds - 1
+            offer_tools = None if last_round else tools
+            message = self._complete(messages, tools=offer_tools, json_mode=last_round)
             tool_calls = message.get("tool_calls")
             if not tool_calls:
                 content = (message.get("content") or "").strip()
                 if content.startswith("{"):
                     return content
-                # Repair round: no tools, JSON forced.
-                messages.append({"role": "assistant", "content": content})
-                messages.append({"role": "user", "content": "Return ONLY the JSON object now."})
-                return self._complete(messages, json_mode=True).get("content") or ""
-            messages.append(message)
+                break  # got prose, not JSON, and no tool calls -> force it below
+            # Normalize the assistant turn (content must be a string, not null, for
+            # some backends) before echoing the tool results back.
+            messages.append(
+                {"role": "assistant", "content": message.get("content") or "", "tool_calls": tool_calls}
+            )
             for call in tool_calls:
                 name = call["function"]["name"]
                 try:
@@ -174,9 +180,14 @@ class LLMProvider:
                     result = self.tool_client.call(name, arguments)
                 except Exception as exc:
                     raise ProviderError(f"MCP tool '{name}' failed: {exc}") from exc
-                log.info("agent tool call", extra={"tool": name, "args": arguments})
+                # NB: `args` is a reserved LogRecord attribute — never use it as an
+                # extra key or logging raises KeyError.
+                log.info("agent tool call", extra={"tool": name, "tool_args": arguments})
                 messages.append({"role": "tool", "tool_call_id": call.get("id", ""), "content": result})
-        raise ProviderError(f"{self.name} exceeded {max_rounds} tool rounds without a final answer")
+
+        # Final forced answer: no tools, JSON required.
+        messages.append({"role": "user", "content": "Now return ONLY the final JSON object."})
+        return self._complete(messages, json_mode=True).get("content") or ""
 
     def _complete(self, messages: list[dict], json_mode: bool = False, tools: list[dict] | None = None) -> dict:
         """One chat-completions call with retry; returns the assistant *message*."""

@@ -29,4 +29,16 @@ Shipped **auto-approve** fixtures exercised with no human: **4**.
 | INV-1018 | `human_review` | `human_review` | ✅ | SAAS-01, AUTONOMY-CEILING |
 | INV-1019 | `human_review` | `human_review` | ✅ | TRAVEL-02, AUTONOMY-CEILING |
 
+## Production-mix simulation (realistic traffic mix)
+
+The fixtures above are deliberately edge-heavy — they exist to exercise every decision path, so their auto/human split says nothing about production traffic. This section runs a **seeded synthetic mix of 1000 invoices** shaped like real enterprise expense traffic (mostly small routine meals/rides/subscriptions, a tail of big-ticket and messy items — assumptions visible in `eval/production_mix.py`) through the same agent + router:
+
+| Route | Share |
+|---|---|
+| auto_approve (no human) | **80.1%** |
+| human_review | 19.9% |
+| reject | 0.0% |
+
+Money signed autonomously: $70,604 vs $114,678 routed to people — the boring majority is automated while every large or messy item still meets a human.
+
 _Regenerate with_ `python eval/run_eval.py`.

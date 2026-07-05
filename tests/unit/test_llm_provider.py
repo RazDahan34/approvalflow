@@ -167,7 +167,10 @@ class FakeToolClient:
         return json.dumps({"name": arguments.get("name"), "known": True})
 
 
-def test_tool_loop_executes_mcp_calls_then_parses_final_json():
+def test_tool_loop_executes_mcp_calls_then_parses_final_json(caplog):
+    # INFO level so the "agent tool call" log line actually runs — guards against
+    # reserved-LogRecord-key regressions that only bite when logging is enabled.
+    caplog.set_level("INFO")
     requests_seen = []
 
     def handler(request: httpx.Request) -> httpx.Response:
