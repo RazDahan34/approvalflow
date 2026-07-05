@@ -11,6 +11,11 @@ target-version = "py312"
 [tool.ruff.lint]
 select = ["E", "F", "I", "UP", "B"]
 
+[tool.ruff.lint.flake8-bugbear]
+# FastAPI's documented idiom is `param = Depends(...)` in argument defaults;
+# keep B008 active for everything else.
+extend-immutable-calls = ["fastapi.Depends"]
+
 [tool.mypy]
 python_version = "3.12"
 ignore_missing_imports = true

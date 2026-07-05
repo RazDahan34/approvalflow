@@ -52,6 +52,16 @@
   <header>
     <h1>ApprovalFlow</h1>
     <p>AI-assisted invoice &amp; expense approvals · gateway <code id="api"></code></p>
+    <div style="margin-inline-start:auto; display:flex; gap:8px; align-items:center">
+      <input id="whoami" placeholder="your name" style="width:150px" />
+      <select id="role" style="width:130px">
+        <option value="submitter">submitter</option>
+        <option value="approver">approver</option>
+        <option value="admin">admin</option>
+      </select>
+      <button class="action small" onclick="signIn()">Sign in</button>
+      <span id="authState" class="pill info">signed out</span>
+    </div>
   </header>
 
   <nav>
@@ -125,6 +135,34 @@
     const API = "http://localhost:8080";
     document.getElementById("api").textContent = API;
     let eventSource = null, refreshTimer = null;
+
+    // ── auth (N1): every API call carries the signed token of the selected role ──
+    let TOKEN = "";
+    const _fetch = window.fetch.bind(window);
+    window.fetch = (url, opts = {}) => {
+      if (typeof url === "string" && url.startsWith(API) && TOKEN && !url.includes("/auth/token")) {
+        opts.headers = { ...(opts.headers || {}), "Authorization": "Bearer " + TOKEN };
+      }
+      return _fetch(url, opts);
+    };
+
+    async function signIn(role, name) {
+      role = role || document.getElementById("role").value;
+      name = name || document.getElementById("whoami").value.trim() || ("demo." + role);
+      try {
+        const r = await fetch(API + "/auth/token", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ subject: name, role })
+        });
+        TOKEN = (await r.json()).token;
+        document.getElementById("authState").textContent = `${name} · ${role}`;
+        document.getElementById("authState").className = "pill ok";
+      } catch (e) {
+        document.getElementById("authState").textContent = "auth failed";
+        document.getElementById("authState").className = "pill bad";
+      }
+    }
+    signIn("submitter", "demo.submitter"); // demo default; switch role from the header
 
     const SAMPLES = {
       auto: {
@@ -208,7 +246,8 @@
         log.textContent += `[now] ${s.status} — ${s.reason || ""}\n`;
       } catch { log.textContent = "status fetch failed\n"; }
 
-      eventSource = new EventSource(`${API}/invoices/${tid}/events`);
+      // EventSource cannot set headers — the token rides as a query parameter.
+      eventSource = new EventSource(`${API}/invoices/${tid}/events?access_token=${encodeURIComponent(TOKEN)}`);
       eventSource.onmessage = (m) => {
         const e = JSON.parse(m.data);
         renderStatus(e);
@@ -242,7 +281,12 @@
     async function loadQueue() {
       const box = document.getElementById("queue");
       try {
-        const data = await (await fetch(API + "/approvals")).json();
+        const response = await fetch(API + "/approvals");
+        if (response.status === 401 || response.status === 403) {
+          box.innerHTML = `<div class="muted" style="margin-top:12px">⛔ This view needs the <b>approver</b> role — switch role in the header (F4/N1).</div>`;
+          return;
+        }
+        const data = await response.json();
         const items = data.escalations || [];
         if (!items.length) { box.innerHTML = `<div class="muted" style="margin-top:12px">Queue is empty — the boring majority handles itself (F6).</div>`; return; }
         box.innerHTML = items.map(e => `
@@ -264,9 +308,10 @@
 
     async function act(tid, action) {
       const note = document.getElementById("note-" + tid)?.value || "";
+      // No approver field: the gateway stamps the identity from the verified token.
       await fetch(`${API}/approvals/${tid}/decision`, {
         method: "POST", headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ action, note, approver: "mgr.finance@ui" })
+        body: JSON.stringify({ action, note })
       });
       loadQueue();
     }
@@ -274,7 +319,13 @@
     // ── Dashboard ──
     async function loadDashboard() {
       try {
-        const m = await (await fetch(API + "/dashboard/metrics")).json();
+        const metricsResponse = await fetch(API + "/dashboard/metrics");
+        if (metricsResponse.status === 401 || metricsResponse.status === 403) {
+          document.getElementById("statCards").innerHTML =
+            `<div class="muted">⛔ The dashboard needs the <b>admin</b> role — switch role in the header (F8/N1).</div>`;
+          return;
+        }
+        const m = await metricsResponse.json();
         document.getElementById("statCards").innerHTML = [
           [m.submitted, "submitted"], [m.auto_approved, "auto-approved"],
           [m.escalated, "escalated"], [(m.auto_rate * 100).toFixed(0) + "%", "autonomy rate"],
