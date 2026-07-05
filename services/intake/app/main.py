@@ -9,28 +9,61 @@ publishes `invoice.status-changed` events and intake materializes them into its 
 store — services never touch each other's data (database-per-service).
 """
 
+import asyncio
 import uuid
+from contextlib import asynccontextmanager
 from datetime import UTC, datetime
 
 from approvalflow_common import create_app, get_correlation_id, get_logger, get_settings, set_correlation_id
 from approvalflow_common.correlation import get_traceparent
 from approvalflow_common.dapr_client import publish_event
+from approvalflow_common.outbox import Outbox
 from approvalflow_common.schemas import InvoiceSubmission, InvoiceSubmittedEvent
 from approvalflow_common.state import DaprStateBackend
 from approvalflow_common.topics import INVOICE_STATUS_CHANGED, INVOICE_SUBMITTED
 from dapr.ext.fastapi import DaprApp
-from fastapi import HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request
 
 SERVICE = "intake"
 
 settings = get_settings()
-app = create_app(SERVICE)
-dapr_app = DaprApp(app)
 log = get_logger(SERVICE)
 
 
 def _backend() -> DaprStateBackend:
     return DaprStateBackend(settings.statestore_name)
+
+
+outbox = Outbox(_backend(), publish_event)
+
+
+@asynccontextmanager
+async def intake_lifespan(_: FastAPI):
+    # Outbox relay (N3): sweeps staged-but-unpublished events every few seconds, so a
+    # broker hiccup delays delivery instead of losing the invoice.
+    stop = asyncio.Event()
+
+    async def sweeper() -> None:
+        while not stop.is_set():
+            try:
+                delivered = await asyncio.to_thread(outbox.sweep)
+                if delivered:
+                    log.info("outbox sweep delivered", extra={"count": delivered})
+            except Exception as exc:  # sidecar warming up / transient store errors
+                log.warning("outbox sweep failed; retrying", extra={"error": str(exc)[:120]})
+            try:
+                await asyncio.wait_for(stop.wait(), timeout=3)
+            except TimeoutError:
+                pass
+
+    task = asyncio.create_task(sweeper())
+    yield
+    stop.set()
+    await task
+
+
+app = create_app(SERVICE, lifespan_extra=intake_lifespan)
+dapr_app = DaprApp(app)
 
 
 @app.post("/invoices", status_code=202)
@@ -63,7 +96,10 @@ def submit_invoice(invoice: InvoiceSubmission) -> dict:
         traceparent=get_traceparent() or None,
         invoice=invoice,
     )
-    publish_event(INVOICE_SUBMITTED, event.model_dump(by_alias=True))
+    # Outbox (N3): the intent-to-publish is durable in the SAME store as the
+    # submission BEFORE we acknowledge; the publish itself may lag, never vanish.
+    outbox.stage(tracking_id, INVOICE_SUBMITTED, event.model_dump(by_alias=True))
+    outbox.flush_one(tracking_id)
 
     log.info(
         "invoice accepted",
