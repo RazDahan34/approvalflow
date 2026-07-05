@@ -38,7 +38,9 @@ def main() -> int:
     tracking_id = client.post(f"{GATEWAY}/invoices", json=body, headers=headers).json()["trackingId"]
     print(f"submitted {tracking_id}; waiting for processing + span export...")
 
-    deadline = time.time() + 60
+    # Generous window: right after a container recreate the workflow worker may take
+    # ~30s to reconnect, and span export batches add a few more seconds.
+    deadline = time.time() + 120
     best: tuple[int, set] = (0, set())
     while time.time() < deadline:
         time.sleep(5)
@@ -51,7 +53,7 @@ def main() -> int:
             services = {
                 span.get("localEndpoint", {}).get("serviceName", "") for span in trace
             } | {span.get("remoteEndpoint", {}).get("serviceName", "") for span in trace}
-            services.discard("")
+            services = {s for s in services if len(s) > 1}  # daprd emits junk like "["
             wanted = {"gateway", "intake", "orchestrator", "ai-decision-app"}
             if wanted <= services:
                 print(f"TRACE OK: {trace[0]['traceId']} spans={len(trace)}")
