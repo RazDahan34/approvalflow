@@ -29,6 +29,21 @@ TERMINAL = {"paid", "payment_failed", "rejected", "duplicate"}
 client = httpx.Client(timeout=15)
 results: list[tuple[str, bool, str]] = []
 
+# ── auth (N1): the suite acts as three principals with signed tokens ──
+TOKENS: dict[str, str] = {}
+
+
+def token(role: str) -> str:
+    if role not in TOKENS:
+        response = client.post(f"{GATEWAY}/auth/token", json={"subject": f"verify.{role}", "role": role})
+        response.raise_for_status()
+        TOKENS[role] = response.json()["token"]
+    return TOKENS[role]
+
+
+def auth(role: str) -> dict:
+    return {"Authorization": f"Bearer {token(role)}"}
+
 
 def check(name: str, ok: bool, detail: str = "") -> None:
     results.append((name, ok, detail))
@@ -56,11 +71,11 @@ def invoice(department: str, vendor: str, category: str, total: float, **extra) 
 
 
 def submit(body: dict) -> dict:
-    return client.post(f"{GATEWAY}/invoices", json=body).json()
+    return client.post(f"{GATEWAY}/invoices", json=body, headers=auth("submitter")).json()
 
 
 def status_of(tracking_id: str) -> dict:
-    response = client.get(f"{GATEWAY}/invoices/{tracking_id}/status")
+    response = client.get(f"{GATEWAY}/invoices/{tracking_id}/status", headers=auth("submitter"))
     return response.json() if response.status_code == 200 else {}
 
 
@@ -79,7 +94,7 @@ def wait_for_status(tracking_id: str, wanted: set[str], timeout: float = 60) -> 
 
 
 def approvals() -> list[dict]:
-    return client.get(f"{GATEWAY}/approvals").json().get("escalations", [])
+    return client.get(f"{GATEWAY}/approvals", headers=auth("approver")).json().get("escalations", [])
 
 
 def decide(tracking_id: str, action: str, note: str = "", approver: str = "mgr.finance") -> httpx.Response:
@@ -88,9 +103,12 @@ def decide(tracking_id: str, action: str, note: str = "", approver: str = "mgr.f
     last: httpx.Response | None = None
     for _ in range(12):
         try:
+            # `approver` in the body is a deliberate SPOOF attempt — the gateway must
+            # stamp the identity from the verified token instead (see the M11 check).
             last = client.post(
                 f"{GATEWAY}/approvals/{tracking_id}/decision",
                 json={"action": action, "note": note, "approver": approver},
+                headers=auth("approver"),
             )
             if last.status_code == 200:
                 return last
@@ -101,7 +119,7 @@ def decide(tracking_id: str, action: str, note: str = "", approver: str = "mgr.f
 
 
 def budgets() -> dict[str, dict]:
-    rows = client.get(f"{GATEWAY}/budgets").json()["budgets"]
+    rows = client.get(f"{GATEWAY}/budgets", headers=auth("admin")).json()["budgets"]
     return {row["department"]: row for row in rows}
 
 
@@ -201,12 +219,13 @@ def journey_escalate_resume_with_restart() -> None:
         time.sleep(3)
     check("queue survives the restart", entry_after is not None)
 
-    response = decide(tid, "approve", approver="mgr.sales")
+    response = decide(tid, "approve", approver="spoofed.big.boss")
     check("approver action accepted after restart", response.status_code == 200)
     final = wait_for_status(tid, TERMINAL, timeout=90)
     check("workflow resumed exactly where it paused -> paid (M11/F5)", final.get("status") == "paid",
           final.get("reason", ""))
-    check("human approver recorded", final.get("decidedBy") == "mgr.sales")
+    check("approver identity from the TOKEN, spoofed payload ignored",
+          final.get("decidedBy") == "verify.approver", f"decidedBy={final.get('decidedBy')}")
 
 
 def journey_request_info_loop() -> None:
@@ -221,7 +240,11 @@ def journey_request_info_loop() -> None:
     asked = wait_for_status(tid, {"info_requested"})
     check("submitter sees the question (F2)", "client" in asked.get("reason", "").lower())
 
-    reply = client.post(f"{GATEWAY}/invoices/{tid}/reply", json={"message": "Client is Acme Corp; deal Q3-042."})
+    reply = client.post(
+        f"{GATEWAY}/invoices/{tid}/reply",
+        json={"message": "Client is Acme Corp; deal Q3-042."},
+        headers=auth("submitter"),
+    )
     check("reply accepted", reply.status_code == 200)
     back = wait_for_status(tid, {"pending_approval"})
     check("item returns to the approver queue", back.get("status") == "pending_approval")
@@ -267,6 +290,16 @@ def journey_budget_concurrency() -> None:
     marketing = budgets()["marketing-2026Q2"]
     check("budget never overspent", marketing["reserved"] == 600.0 and marketing["available"] == 400.0,
           json.dumps(marketing))
+
+
+def security_guards() -> None:
+    print("\nSecurity guards (N1)")
+    naked = client.post(f"{GATEWAY}/invoices", json=invoice("sales-2026Q2", "City Cabs", "travel", 10.0))
+    check("no token -> 401", naked.status_code == 401)
+    wrong = client.get(f"{GATEWAY}/approvals", headers=auth("submitter"))
+    check("submitter blocked from the approver queue -> 403", wrong.status_code == 403)
+    wrong = client.get(f"{GATEWAY}/dashboard/metrics", headers=auth("approver"))
+    check("approver blocked from the admin dashboard -> 403", wrong.status_code == 403)
 
 
 def anti_cheese_guards() -> None:
@@ -318,6 +351,7 @@ def main() -> int:
     run_step(journey_payment_failure_compensation)
     run_step(journey_budget_concurrency)
     run_step(anti_cheese_guards)
+    run_step(security_guards)
 
     passed = sum(1 for _, ok, _ in results if ok)
     print(f"\n{'=' * 60}\n{passed}/{len(results)} checks passed")

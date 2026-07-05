@@ -10,6 +10,7 @@ dependencies = [
   "httpx>=0.27",
   "dapr>=1.14",
   "dapr-ext-fastapi>=1.14",
+  "PyJWT>=2.8",
 ]
 
 [build-system]
