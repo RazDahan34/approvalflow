@@ -46,3 +46,6 @@ Thumbs.db
 
 # local secret files (no leading dot)
 env.local
+
+# private prep material (demo scripts, rewrite kits)
+prep/
