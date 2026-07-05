@@ -19,6 +19,15 @@ services:
       - "9411:9411"
     networks: [approvalflow]
 
+  # Scrapes every sidecar's built-in metrics endpoint (N4).
+  prometheus:
+    image: prom/prometheus:v2.53.0
+    volumes:
+      - ./infra/prometheus/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    ports:
+      - "9091:9090"
+    networks: [approvalflow]
+
   placement:
     image: daprio/dapr:1.18.1
     command: ["./placement", "-port", "50006"]

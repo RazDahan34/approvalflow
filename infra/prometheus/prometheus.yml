@@ -1,0 +1,17 @@
+# Scrapes the built-in Prometheus endpoints of every Dapr sidecar (N4 metrics):
+# request rates, latencies and error counts for all service-to-service traffic —
+# zero application code. Business metrics live in the audit service (F8).
+global:
+  scrape_interval: 10s
+
+scrape_configs:
+  - job_name: dapr-sidecars
+    static_configs:
+      - targets:
+          - gateway:9090
+          - intake:9090
+          - orchestrator:9090
+          - ai-decision:9090
+          - payment:9090
+          - notification:9090
+          - audit:9090

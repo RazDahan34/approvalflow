@@ -27,6 +27,7 @@ from approvalflow_common import (
     route_decision,
     set_correlation_id,
 )
+from approvalflow_common.correlation import set_traceparent
 from approvalflow_common.dapr_client import invoke_service, publish_event
 from approvalflow_common.policy_source import PolicySource
 from approvalflow_common.schemas import InvoiceSubmission, Route
@@ -96,6 +97,7 @@ def invoice_lifecycle(ctx: wf.DaprWorkflowContext, payload: dict):
     money = {
         "trackingId": payload["trackingId"],
         "correlationId": payload["correlationId"],
+        "traceparent": payload.get("traceparent"),
         "department": payload["invoice"]["department"],
         "amountUsd": decision["amountUsd"],
         "scenario": payload["invoice"].get("scenario"),
@@ -145,6 +147,7 @@ def invoice_lifecycle(ctx: wf.DaprWorkflowContext, payload: dict):
 @wfr.activity(name="decide")
 def decide(ctx: wf.WorkflowActivityContext, payload: dict) -> dict:
     set_correlation_id(payload.get("correlationId", ""))
+    set_traceparent(payload.get("traceparent", ""))
     tracking_id = payload["trackingId"]
     invoice = InvoiceSubmission.model_validate(payload["invoice"])
 
@@ -192,6 +195,7 @@ def decide(ctx: wf.WorkflowActivityContext, payload: dict) -> dict:
 def enqueue_escalation(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
     """Add the item to the approver queue (F4) with the agent's full rationale."""
     set_correlation_id(payload.get("correlationId", ""))
+    set_traceparent(payload.get("traceparent", ""))
     tracking_id = payload["trackingId"]
     invoice = payload["invoice"]
     decision = payload["decision"]
@@ -221,6 +225,7 @@ def dequeue_escalation(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
 @wfr.activity(name="request_info")
 def request_info(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
     set_correlation_id(payload.get("correlationId", ""))
+    set_traceparent(payload.get("traceparent", ""))
     _index_update(_backend(), remove=payload["trackingId"])
     _publish_status(
         payload,
@@ -232,12 +237,14 @@ def request_info(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
 @wfr.activity(name="reserve_budget")
 def reserve_budget(ctx: wf.WorkflowActivityContext, money: dict) -> dict:
     set_correlation_id(money.get("correlationId", ""))
+    set_traceparent(money.get("traceparent", ""))
     return _call_payment("reserve", {k: money[k] for k in ("trackingId", "department", "amountUsd")})
 
 
 @wfr.activity(name="execute_payment")
 def execute_payment(ctx: wf.WorkflowActivityContext, money: dict) -> dict:
     set_correlation_id(money.get("correlationId", ""))
+    set_traceparent(money.get("traceparent", ""))
     return _call_payment(
         "execute",
         {"trackingId": money["trackingId"], "amountUsd": money["amountUsd"], "scenario": money.get("scenario")},
@@ -247,12 +254,14 @@ def execute_payment(ctx: wf.WorkflowActivityContext, money: dict) -> dict:
 @wfr.activity(name="release_budget")
 def release_budget(ctx: wf.WorkflowActivityContext, money: dict) -> dict:
     set_correlation_id(money.get("correlationId", ""))
+    set_traceparent(money.get("traceparent", ""))
     return _call_payment("release", {"trackingId": money["trackingId"]})
 
 
 @wfr.activity(name="finalize")
 def finalize(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
     set_correlation_id(payload.get("correlationId", ""))
+    set_traceparent(payload.get("traceparent", ""))
     _publish_status(payload, payload["status"], payload["reason"], decided_by=payload.get("decidedBy"))
     log.info(
         "workflow finalized",

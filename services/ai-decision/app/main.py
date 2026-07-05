@@ -7,7 +7,7 @@ The LLM provider is swappable by configuration — gemini | groq | openrouter | 
 
 from pathlib import Path
 
-from approvalflow_common import create_app, get_logger, get_settings
+from approvalflow_common import create_app, get_correlation_id, get_logger, get_settings
 from approvalflow_common.agent import get_provider
 from approvalflow_common.llm import ProviderError
 from approvalflow_common.policy_rag import PolicyIndex
@@ -45,12 +45,26 @@ if settings.mcp_server_url and settings.llm_provider != "stub":
 provider = get_provider(settings.llm_provider, retriever=policy_index, tool_client=tool_client)
 log.info("agent provider ready", extra={"provider": provider.name})
 
+# App-level OTel spans (N4): the sidecar traces the hop TO us; this traces what the
+# agent does INSIDE — retrieval, the model call, MCP tools — in the same trace.
+from .telemetry import get_tracer, setup_tracing  # noqa: E402
+
+setup_tracing(app)
+
 
 @app.post("/recommend")
 def recommend(invoice: InvoiceSubmission) -> dict:
     """Return the agent's advisory recommendation for one invoice."""
+    tracer = get_tracer()
     try:
-        recommendation = provider.recommend(invoice)
+        with tracer.start_as_current_span("agent.recommend") as span:
+            span.set_attribute("approvalflow.correlation_id", get_correlation_id())
+            span.set_attribute("invoice.category", invoice.category.value)
+            span.set_attribute("invoice.total", invoice.total)
+            span.set_attribute("agent.provider", provider.name)
+            recommendation = provider.recommend(invoice)
+            span.set_attribute("agent.proposed_route", recommendation.proposed_route.value)
+            span.set_attribute("agent.confidence", recommendation.confidence)
     except ProviderError as exc:
         # Fail cleanly, never silently (M15): loud structured log + explicit 502.
         # The orchestrator treats this as "agent unavailable" and escalates to a human.

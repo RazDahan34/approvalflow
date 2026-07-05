@@ -1,4 +1,9 @@
 # The shared library provides fastapi, pydantic, httpx and the Dapr SDK.
 uvicorn[standard]>=0.30
 mcp>=1.9,<2
+# OpenTelemetry (N4): app-level spans for the LLM/MCP calls, exported to Zipkin.
+opentelemetry-sdk>=1.25
+opentelemetry-instrumentation-fastapi>=0.46b0
+opentelemetry-instrumentation-httpx>=0.46b0
+opentelemetry-exporter-zipkin-json>=1.25
 
