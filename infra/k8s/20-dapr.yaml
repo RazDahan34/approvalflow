@@ -1,0 +1,89 @@
+# Dapr building blocks — the k8s twins of dapr/components/*.
+# Differences from compose are deliberate:
+#   * name resolution: kubernetes-native DNS (no sqlite registry needed),
+#   * secret store: real Kubernetes secrets instead of env,
+#   * everything else is the same YAML shape — that's the Dapr portability story.
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: approvalflow-config
+  namespace: approvalflow
+spec:
+  tracing:
+    samplingRate: "1"
+    zipkin:
+      endpointAddress: http://zipkin.approvalflow:9411/api/v2/spans
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: pubsub
+  namespace: approvalflow
+spec:
+  type: pubsub.redis
+  version: v1
+  metadata:
+    - { name: redisHost, value: "redis.approvalflow:6379" }
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore-intake
+  namespace: approvalflow
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - { name: redisHost, value: "redis.approvalflow:6379" }
+scopes: [intake]
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore-orchestrator
+  namespace: approvalflow
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - { name: redisHost, value: "redis.approvalflow:6379" }
+    - { name: actorStateStore, value: "true" }
+scopes: [orchestrator]
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore-payment
+  namespace: approvalflow
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - { name: redisHost, value: "redis.approvalflow:6379" }
+scopes: [payment]
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: statestore-audit
+  namespace: approvalflow
+spec:
+  # Same state API, different database behind it (ADR-0009).
+  type: state.postgresql
+  version: v1
+  metadata:
+    - name: connectionString
+      secretKeyRef: { name: approvalflow-secrets, key: audit-connstring }
+scopes: [audit]
+---
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: configstore
+  namespace: approvalflow
+spec:
+  type: configuration.redis
+  version: v1
+  metadata:
+    - { name: redisHost, value: "redis.approvalflow:6379" }
+scopes: [orchestrator]

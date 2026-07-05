@@ -1,0 +1,336 @@
+# The nine ApprovalFlow workloads. Dapr sidecars are injected by annotation;
+# mcp-server and ui run without one by design (ADR-0008 / static content).
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: gateway } }
+  template:
+    metadata:
+      labels: { app: gateway }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "gateway"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: gateway
+          image: ghcr.io/razdahan34/approvalflow-gateway:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: gateway }
+            - { name: GATEWAY_RATE_LIMIT, value: "300/minute" }
+            - name: JWT_SECRET
+              valueFrom: { secretKeyRef: { name: approvalflow-secrets, key: jwt-secret } }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: gateway
+  namespace: approvalflow
+spec:
+  # LoadBalancer works out of the box on Docker Desktop; use NodePort on kind.
+  type: LoadBalancer
+  selector: { app: gateway }
+  ports: [{ port: 8080, targetPort: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: intake
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: intake } }
+  template:
+    metadata:
+      labels: { app: intake }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "intake"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: intake
+          image: ghcr.io/razdahan34/approvalflow-intake:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: intake }
+            - { name: STATESTORE_NAME, value: statestore-intake }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: intake
+  namespace: approvalflow
+spec:
+  selector: { app: intake }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: orchestrator
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: orchestrator } }
+  template:
+    metadata:
+      labels: { app: orchestrator }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "orchestrator"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: orchestrator
+          image: ghcr.io/razdahan34/approvalflow-orchestrator:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: orchestrator }
+            - { name: STATESTORE_NAME, value: statestore-orchestrator }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: orchestrator
+  namespace: approvalflow
+spec:
+  selector: { app: orchestrator }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ai-decision
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ai-decision } }
+  template:
+    metadata:
+      labels: { app: ai-decision }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "ai-decision"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: ai-decision
+          image: ghcr.io/razdahan34/approvalflow-ai-decision:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: ai-decision }
+            - { name: POLICY_PATH, value: /app/policy/policy.md }
+            - { name: MCP_SERVER_URL, value: "http://mcp-server.approvalflow:8000/mcp" }
+            - name: LLM_PROVIDER
+              valueFrom: { secretKeyRef: { name: approvalflow-secrets, key: llm-provider, optional: true } }
+            - name: LLM_API_KEY
+              valueFrom: { secretKeyRef: { name: approvalflow-secrets, key: llm-api-key, optional: true } }
+          volumeMounts:
+            - { name: policy, mountPath: /app/policy, readOnly: true }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+      volumes:
+        - name: policy
+          configMap: { name: policy-doc }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ai-decision
+  namespace: approvalflow
+spec:
+  selector: { app: ai-decision }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: payment
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: payment } }
+  template:
+    metadata:
+      labels: { app: payment }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "payment"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: payment
+          image: ghcr.io/razdahan34/approvalflow-payment:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: payment }
+            - { name: STATESTORE_NAME, value: statestore-payment }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: payment
+  namespace: approvalflow
+spec:
+  selector: { app: payment }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: notification } }
+  template:
+    metadata:
+      labels: { app: notification }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "notification"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: notification
+          image: ghcr.io/razdahan34/approvalflow-notification:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: notification }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: notification
+  namespace: approvalflow
+spec:
+  selector: { app: notification }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: audit } }
+  template:
+    metadata:
+      labels: { app: audit }
+      annotations:
+        dapr.io/enabled: "true"
+        dapr.io/app-id: "audit"
+        dapr.io/app-port: "8000"
+        dapr.io/config: "approvalflow-config"
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: audit
+          image: ghcr.io/razdahan34/approvalflow-audit:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: audit }
+            - { name: STATESTORE_NAME, value: statestore-audit }
+          readinessProbe:
+            httpGet: { path: /health, port: 8000 }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: audit
+  namespace: approvalflow
+spec:
+  selector: { app: audit }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-server
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: mcp-server } }
+  template:
+    metadata:
+      labels: { app: mcp-server } # no dapr sidecar: MCP is the transport (ADR-0008)
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: mcp-server
+          image: ghcr.io/razdahan34/approvalflow-mcp-server:latest
+          ports: [{ containerPort: 8000 }]
+          env:
+            - { name: SERVICE_NAME, value: mcp-server }
+            - { name: POLICY_PATH, value: /app/policy/policy.md }
+          volumeMounts:
+            - { name: policy, mountPath: /app/policy, readOnly: true }
+      volumes:
+        - name: policy
+          configMap: { name: policy-doc }
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-server
+  namespace: approvalflow
+spec:
+  selector: { app: mcp-server }
+  ports: [{ port: 8000 }]
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ui
+  namespace: approvalflow
+spec:
+  replicas: 1
+  selector: { matchLabels: { app: ui } }
+  template:
+    metadata:
+      labels: { app: ui }
+    spec:
+      imagePullSecrets: [{ name: ghcr-creds }]
+      containers:
+        - name: ui
+          image: ghcr.io/razdahan34/approvalflow-ui:latest
+          ports: [{ containerPort: 80 }]
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: ui
+  namespace: approvalflow
+spec:
+  type: LoadBalancer
+  selector: { app: ui }
+  ports: [{ port: 3000, targetPort: 80 }]
