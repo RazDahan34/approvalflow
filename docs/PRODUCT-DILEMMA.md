@@ -70,6 +70,18 @@ it: even a $2,000 envelope could not approve $1,400 hardware, because HW-02 is c
 - **Adversarial router tests:** `tests/unit/test_router.py` — forced approvals, steering notes,
   unknown-currency fail-closed, tier boundaries ($400 travel auto vs $600 human; $300 hardware auto vs
   $400 human), and proof that a widened tier is clamped by the envelope.
+- **End-to-end verification:** `python verify/run_journeys.py` — 27/27 live checks, including the
+  anti-cheese guards (≥2 items paid with no human; the "approve me" note does not flip the decision)
+  and the F10 ledger (`/audit/autonomy-proof` reports `ceilingRespected: true` with the maximum
+  autonomous amount ever signed).
+- **Live model runs (gemini-2.5-flash):** the defence is layered in practice, not just in tests. A
+  clean $42 meal was paid end-to-end with no human. On the INV-1013 steering payload the *model
+  itself* reported `fraud_signals: ["steering attempt in notes"]` (layer 1) while the router escalated
+  on the SaaS cap regardless (layer 2). On the INV-1008 fraud shape the model surfaced all three
+  planted patterns — round-number to a brand-new vendor, no line-item detail, off-hours — and the
+  router independently stacked four hard stops (`GLOBAL-RECEIPT`, `GLOBAL-VENDOR`, `GLOBAL-FRAUD`,
+  `AUTONOMY-CEILING`). If the model ever misses, the deterministic layer still holds; when the model
+  catches, the human reviewer gets a better explanation.
 
 ## Alternatives we rejected
 
