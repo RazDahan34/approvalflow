@@ -297,41 +297,66 @@ All key decisions are ADRs (`docs/adr/`): 0001 decomposition · 0002 Dapr Workfl
 0003 router in-process · 0005 Redis broker · 0006 the autonomy posture (+
 `PRODUCT-DILEMMA.md`) · 0007 RAG strategy · 0008 MCP server · 0009 data layer.
 
-## 12. Requirements traceability
+## 12. Requirements traceability — how every requirement is implemented
 
-| Req | Where it lives |
-|---|---|
-| F1 async submit + tracking id | intake (202 + trackingId), pub/sub |
-| F2 status + plain-language reason | gateway `/status`, notification |
-| F3 no double-pay | intake idempotency, payment keyed by invoice id |
-| F4 escalation queue + rationale | orchestrator queue, ai-decision structured output |
-| F5 approve/reject/send-back + resume | orchestrator (Dapr Workflow external events) |
-| F6 no needless rubber-stamping | router auto-approves the safe majority |
-| F7 configurable policy/thresholds | Dapr config |
-| F8 auto-vs-human dashboard | audit/reporting + UI |
-| F9 full decision trail | audit, correlation id |
-| F10 prove never above ceiling | deterministic router + autonomy ledger + tests |
-| M3 ≥3 containerized services | 7 services, each a container |
-| M4 one-command compose | `docker compose up` |
-| M5 Dapr sync+async+state+secrets | §4 |
-| M6 gateway + rate-limit | gateway |
-| M7 minimal UI | ui |
-| M8 async intake + notify | intake + notification |
-| M9 consistent payment + compensation | §7 saga |
-| M10 idempotency | §9 |
-| M11 durable HITL | §8 |
-| M12 provable ceiling | §5 |
-| M13 external thresholds | Dapr config |
-| M14 structured logs + correlation id | §9 |
-| M15 clean code + provider ACL + fail-fast | ai-decision provider abstraction |
-| M16/M17 CI + tests | GitHub Actions, tests/ |
-| M18 README + diagram | README + this doc |
-| N1 authn/z roles | gateway JWT |
-| N2 CD | GitHub Actions publish |
-| N3 outbox + bulkhead | intake outbox, gateway/throttling |
-| N4 OTel + e2e trace | §9 |
-| N5 RAG over policy | ai-decision |
-| N6 tests across layers | tests/ (unit/integration/e2e) |
-| B1 eval harness | eval/ |
-| B2 MCP server | ai-decision tools over MCP |
-| B3 Kubernetes | infra/k8s |
+Concrete map from each requirement id to where and how it is satisfied. Verified end-to-end
+by `verify/run_journeys.py` (27 checks) and `verify/check_observability.py`.
+
+### Functional (user stories)
+
+| Req | How it is implemented | Where |
+|---|---|---|
+| **F1** async submit + tracking id | `POST /invoices` returns `202 + trackingId` immediately, before any processing | `services/intake/app/main.py` |
+| **F2** status + plain-language reason | status projection with human-readable `reason`; live via SSE | `intake` (`/status`), `services/notification/app/main.py` |
+| **F3** no double-pay on resubmit | atomic create-only idempotency claim on `vendor+invoiceNumber+total`; payment keyed by tracking id | `intake`, `libs/.../budgets.py` |
+| **F4** escalation queue + agent rationale | `/approvals` lists only escalated items, each with the agent's route, confidence, cited rules | `gateway`, `orchestrator` (`/escalations`) |
+| **F5** approve/reject/send-back + resume | one action raises a Dapr Workflow external event; request-info runs a full reply loop | `services/orchestrator/app/workflow.py` |
+| **F6** no needless rubber-stamping | the router auto-approves the safe majority (~80%, see `eval/production_mix.py`) | `libs/.../decision.py` |
+| **F7** configurable policy/thresholds | live thresholds from the Dapr configuration store, TTL-cached, changed with one `redis SET` | `libs/.../policy_source.py`, `dapr/components/configstore.yaml` |
+| **F8** auto-vs-human dashboard | event-driven aggregates (throughput, auto/human rates, money split) + UI dashboard | `services/audit/app/main.py`, `ui/index.html` |
+| **F9** full decision trail | append-only trail per correlation id: submit → agent → route → status → payment | `audit` (`/trail/{id}`) |
+| **F10** prove never above ceiling | deterministic router + adversarial tests + a live autonomy ledger (`/audit/autonomy-proof`) | `decision.py`, `tests/unit/test_router.py`, `audit` |
+
+### Must-have
+
+| Req | How it is implemented | Where |
+|---|---|---|
+| **M1** single private monorepo | one private GitHub repo, everything to run & test is in it | (repo root) |
+| **M2** main + dev, PR flow | GitHub Flow — every feature a branch merged to `main` via a CI-gated PR | (git history) |
+| **M3** ≥3 containerized services | 8 services + UI, each its own image | `services/*`, `ui/` |
+| **M4** one-command compose | `docker compose up --build` brings up everything incl. Redis, Postgres, Zipkin, Dapr control plane | `docker-compose.yml` |
+| **M5** Dapr sync+async+state+secrets | service invocation (sync), pub/sub (async), per-service state, secret & configuration stores, workflow | `dapr/`, `libs/.../dapr_client.py` |
+| **M6** gateway + rate-limit | single external entry point, per-client rate limit, role auth | `services/gateway/app/main.py` |
+| **M7** minimal UI | single-page console: submit · live tracking · approvals · dashboard | `ui/index.html` |
+| **M8** async intake + notify | 202 + async processing; final result pushed over SSE | `intake`, `notification` |
+| **M9** consistent payment + compensation | orchestrated saga (reserve → execute → release-on-failure), no orphans/partials | `orchestrator/app/workflow.py` (§7) |
+| **M10** idempotency everywhere | intake dedup, redelivered-event no-op, payment/reservation create-only keys | `budgets.py`, `orchestrator`, `intake` |
+| **M11** durable HITL pause/resume | Dapr Workflow `wait_for_external_event`; survives a container restart mid-pause | `orchestrator/app/workflow.py` (§8) |
+| **M12** provably capped autonomy | pure-code router re-derives every limit; the agent cannot overstep it | `decision.py` (§5) |
+| **M13** external thresholds | Dapr configuration store; changed without redeploy | `policy_source.py` |
+| **M14** structured logs + correlation id | JSON logs, correlation id on every line, propagated across sync/async hops | `libs/.../logging.py`, `middleware.py` |
+| **M15** clean code + provider ACL + fail-fast | swappable LLM behind one interface; fail-fast at boot, fail-closed on agent error | `libs/.../llm.py`, `agent.py` |
+| **M16** CI quality gates on every push | ruff + pytest + eval on every push | `.github/workflows/ci.yml` |
+| **M17** automated tests in CI | 100+ unit + integration tests run in CI | `tests/` |
+| **M18** README + system diagram | full README + this document with Mermaid diagrams | `README.md`, this file |
+
+### Nice-to-have · Bonus · Dev-process
+
+| Req | How it is implemented | Where |
+|---|---|---|
+| **N1** authN/Z + roles | self-signed JWT, roles submitter/approver/admin enforced at the gateway; identity stamped from the token | `libs/.../security.py`, `gateway` |
+| **N2** CD auto-publish | green `main` builds & pushes all 9 images to GHCR, no manual step | `.github/workflows/ci.yml` (publish job) |
+| **N3** outbox + bulkhead/throttling | transactional outbox + relay in intake; declarative Dapr resiliency (retry + circuit breaker); gateway rate-limit | `libs/.../outbox.py`, `dapr/components/resiliency.yaml` |
+| **N4** OTel metrics + one e2e trace | app-level agent spans joined to the Dapr trace (one Zipkin trace, 8 services); Prometheus scrapes every sidecar | `services/ai-decision/app/telemetry.py`, `infra/prometheus/` |
+| **N5** RAG over policy | hybrid structural + lexical retrieval — only relevant clauses enter the prompt | `libs/.../policy_rag.py` (ADR-0007) |
+| **N6** tests across layers | unit (`tests/unit`), integration (`tests/integration`), e2e (`verify/`) | `tests/`, `verify/` |
+| **B1** eval harness + report | offline eval over labeled fixtures + production-mix simulation → committed report | `eval/`, `docs/eval-report.md` |
+| **B2** MCP server | standalone FastMCP service; the agent is a real MCP client with dynamic tool discovery | `services/mcp-server/`, `libs/.../mcp_tools.py` (ADR-0008) |
+| **B3** Kubernetes | kustomize manifests (annotation-injected sidecars, secrets, ConfigMap) + runbook | `infra/k8s/` |
+| **D1** ARCHITECTURE + diagrams | this document (system, sequence, saga-compensation diagrams) | `docs/ARCHITECTURE.md` |
+| **D2** ADRs | nine short Context→Decision→Consequences records | `docs/adr/` |
+| **D3** GitHub Flow + hygiene | feature branches, PRs, `.gitignore` / LICENSE / `.env.example`, no committed secrets | (repo) |
+| **D4** API docs (OpenAPI) | FastAPI auto-generated `/docs` per service; gateway spec committed | `docs/api/gateway-openapi.json` |
+| **D5** one-command verification | the four journeys + anti-cheese + security guards, pass/fail | `verify/run_journeys.py` |
+| **D6** README | purpose, diagram, run & test instructions | `README.md` |
+| **D7** demo recording | short screencast of the four journeys | (submitted separately) |
