@@ -51,7 +51,8 @@ class Settings(BaseSettings):
     gateway_rate_limit: str = "100/minute"
 
     # ── Security (N1) ──
-    jwt_secret: str = "change-me"
+    # Dev-only placeholder, intentionally >=32 bytes (HS256 minimum); override in .env.
+    jwt_secret: str = "change-me-dev-only-secret-0123456789abcdef"
     jwt_issuer: str = "approvalflow"
     jwt_audience: str = "approvalflow"
 
