@@ -67,11 +67,17 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
+      # GHCR only accepts lowercase repository names; github.repository keeps the
+      # account's original casing.
+      - name: Compute lowercase image base
+        id: img
+        run: echo "base=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
       - uses: docker/build-push-action@v6
         with:
           context: ${{ matrix.context }}
           file: ${{ matrix.dockerfile }}
           push: true
           tags: |
-            ghcr.io/${{ github.repository }}-${{ matrix.name }}:latest
-            ghcr.io/${{ github.repository }}-${{ matrix.name }}:${{ github.sha }}
+            ${{ steps.img.outputs.base }}-${{ matrix.name }}:latest
+            ${{ steps.img.outputs.base }}-${{ matrix.name }}:${{ github.sha }}
