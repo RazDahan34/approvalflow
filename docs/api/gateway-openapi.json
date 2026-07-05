@@ -1,0 +1,611 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "ApprovalFlow \u00b7 gateway",
+    "version": "0.1.0"
+  },
+  "paths": {
+    "/health": {
+      "get": {
+        "tags": [
+          "meta"
+        ],
+        "summary": "Health",
+        "operationId": "health_health_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Health Health Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/auth/token": {
+      "post": {
+        "summary": "Auth Token",
+        "description": "Dev-mode identity provider: issue a signed token for a subject+role.\nIn production this endpoint is replaced by a real IdP; services don't change.",
+        "operationId": "auth_token_auth_token_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TokenRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "type": "object",
+                  "title": "Response Auth Token Auth Token Post"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoices": {
+      "post": {
+        "summary": "Submit Invoice",
+        "description": "Validate at the edge, then forward to intake via Dapr service invocation.",
+        "operationId": "submit_invoice_invoices_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/InvoiceSubmission"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoices/{tracking_id}/status": {
+      "get": {
+        "summary": "Invoice Status",
+        "operationId": "invoice_status_invoices__tracking_id__status_get",
+        "parameters": [
+          {
+            "name": "tracking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tracking Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoices/{tracking_id}/reply": {
+      "post": {
+        "summary": "Invoice Reply",
+        "description": "The submitter's answer to a request_info \u2014 resumes the paused workflow (F5).",
+        "operationId": "invoice_reply_invoices__tracking_id__reply_post",
+        "parameters": [
+          {
+            "name": "tracking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tracking Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/invoices/{tracking_id}/events": {
+      "get": {
+        "summary": "Invoice Events",
+        "description": "Live status stream (SSE) for the submitter (M8/F2).\n\nStreams straight over HTTP rather than Dapr invocation: SSE is a long-lived\nstreaming session, and the invocation pipeline is built for request/response.\nApp-plane traffic everywhere else stays on Dapr.",
+        "operationId": "invoice_events_invoices__tracking_id__events_get",
+        "parameters": [
+          {
+            "name": "tracking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tracking Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals": {
+      "get": {
+        "summary": "Approvals Queue",
+        "description": "Only the escalated items, each with the agent's recommendation (F4).",
+        "operationId": "approvals_queue_approvals_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/approvals/{tracking_id}/decision": {
+      "post": {
+        "summary": "Approvals Decision",
+        "description": "approve | reject | request_info \u2014 one action resumes the workflow (F5).\n\nThe approver identity is taken from the VERIFIED token, never from the payload \u2014\nthe F9/F10 audit trail cannot be spoofed by a client.",
+        "operationId": "approvals_decision_approvals__tracking_id__decision_post",
+        "parameters": [
+          {
+            "name": "tracking_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Tracking Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/budgets": {
+      "get": {
+        "summary": "Budgets",
+        "operationId": "budgets_budgets_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/dashboard/metrics": {
+      "get": {
+        "summary": "Dashboard Metrics",
+        "description": "Throughput, auto-vs-human rates and the money split (F8).",
+        "operationId": "dashboard_metrics_dashboard_metrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit/trail/{any_id}": {
+      "get": {
+        "summary": "Audit Trail",
+        "description": "Complete decision trail by correlation OR tracking id (F9).",
+        "operationId": "audit_trail_audit_trail__any_id__get",
+        "parameters": [
+          {
+            "name": "any_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "title": "Any Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit/autonomy-proof": {
+      "get": {
+        "summary": "Autonomy Proof",
+        "description": "Evidence that no auto-approval ever exceeded the ceiling (F10).",
+        "operationId": "autonomy_proof_audit_autonomy_proof_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    },
+    "/config/posture": {
+      "get": {
+        "summary": "Config Posture",
+        "description": "The live autonomy posture the router is enforcing right now (F7/M13).",
+        "operationId": "config_posture_config_posture_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "components": {
+    "schemas": {
+      "Category": {
+        "type": "string",
+        "enum": [
+          "meals",
+          "travel",
+          "saas",
+          "hardware",
+          "other"
+        ],
+        "title": "Category"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "type": "array",
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "title": "HTTPValidationError"
+      },
+      "InvoiceSubmission": {
+        "properties": {
+          "id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Id"
+          },
+          "submitter": {
+            "type": "string",
+            "title": "Submitter"
+          },
+          "department": {
+            "type": "string",
+            "title": "Department"
+          },
+          "vendor": {
+            "type": "string",
+            "title": "Vendor"
+          },
+          "vendorKnown": {
+            "type": "boolean",
+            "title": "Vendorknown",
+            "default": false
+          },
+          "invoiceNumber": {
+            "type": "string",
+            "title": "Invoicenumber"
+          },
+          "currency": {
+            "type": "string",
+            "title": "Currency",
+            "default": "USD"
+          },
+          "category": {
+            "$ref": "#/components/schemas/Category",
+            "default": "other"
+          },
+          "attendees": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attendees"
+          },
+          "lineItems": {
+            "items": {
+              "$ref": "#/components/schemas/LineItem"
+            },
+            "type": "array",
+            "title": "Lineitems"
+          },
+          "taxAmount": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Taxamount",
+            "default": 0.0
+          },
+          "total": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Total"
+          },
+          "receiptPresent": {
+            "type": "boolean",
+            "title": "Receiptpresent",
+            "default": false
+          },
+          "date": {
+            "type": "string",
+            "title": "Date"
+          },
+          "notes": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Notes"
+          },
+          "scenario": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Scenario"
+          }
+        },
+        "type": "object",
+        "required": [
+          "submitter",
+          "department",
+          "vendor",
+          "invoiceNumber",
+          "total",
+          "date"
+        ],
+        "title": "InvoiceSubmission",
+        "description": "An invoice/expense as submitted by an employee or vendor."
+      },
+      "LineItem": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "title": "Description"
+          },
+          "quantity": {
+            "type": "number",
+            "exclusiveMinimum": 0.0,
+            "title": "Quantity",
+            "default": 1
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0.0,
+            "title": "Unitprice"
+          }
+        },
+        "type": "object",
+        "required": [
+          "description",
+          "unitPrice"
+        ],
+        "title": "LineItem"
+      },
+      "TokenRequest": {
+        "properties": {
+          "subject": {
+            "type": "string",
+            "title": "Subject"
+          },
+          "role": {
+            "type": "string",
+            "title": "Role"
+          }
+        },
+        "type": "object",
+        "required": [
+          "subject",
+          "role"
+        ],
+        "title": "TokenRequest"
+      },
+      "ValidationError": {
+        "properties": {
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "type": "array",
+            "title": "Location"
+          },
+          "msg": {
+            "type": "string",
+            "title": "Message"
+          },
+          "type": {
+            "type": "string",
+            "title": "Error Type"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "ctx": {
+            "type": "object",
+            "title": "Context"
+          }
+        },
+        "type": "object",
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError"
+      }
+    }
+  }
+}
