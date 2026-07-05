@@ -270,24 +270,32 @@ sequenceDiagram
 | Concern | Choice |
 |---|---|
 | Language / web | Python 3.12 · FastAPI · Pydantic (typed I/O & structured agent output) |
-| Runtime | Dapr sidecars (`daprd`) — pub/sub, invocation, state, secrets, workflow |
-| Agent | MAF (Microsoft Agent Framework) · swappable LLM (Gemini/Groq/OpenRouter/stub) |
-| Broker / state | Redis (Dapr pub/sub + state) |
-| Data | PostgreSQL (database per service) |
-| Observability | OpenTelemetry → Zipkin/Jaeger |
-| Packaging | Docker · docker-compose (one-command up) |
-| CI/CD | GitHub Actions (quality gates + image publish) |
-| UI | minimal web app (submit · status · approver queue · dashboard) |
+| Runtime | Dapr 1.18 sidecars — pub/sub, invocation, state, secrets, configuration, workflow (+ placement & scheduler control-plane) |
+| Agent | hand-rolled tool-calling loop · swappable LLM (Gemini/Groq/OpenRouter/offline stub) · tools over MCP |
+| Broker / state | Redis behind per-service scoped Dapr state components; **PostgreSQL behind the audit component** — same state API, different database (ADR-0009) |
+| Name resolution | Dapr sqlite resolver (shared registry) — mDNS proved unreliable on Docker networks |
+| Observability | Zipkin traces (Dapr + app-level agent spans) · Prometheus scraping every sidecar · structured JSON logs + correlation id |
+| Packaging | Docker · docker-compose (one-command up) · kustomize manifests for k8s (B3) |
+| CI/CD | GitHub Actions — quality gates on every push; green `main` publishes all images to GHCR (N2) |
+| UI | single-page console (submit · live SSE tracking · approver queue · dashboard) |
 
-## 11. Open decisions (upcoming ADRs)
+## 11. Design principles & the CAP posture
 
-These are recorded as ADRs as we lock them (D2):
+- **SOLID in practice:** one volatility per service; `AgentProvider`/`StateBackend` protocols make
+  providers and stores swappable; the in-memory backend honors the exact CAS contract of the Dapr
+  store, so concurrency guarantees are provable offline; the domain core (router, budgets) is pure
+  code with no I/O, adapters point inward.
+- **KISS / YAGNI, deliberately:** hybrid retrieval instead of a vector DB for a 15-rule policy
+  (ADR-0007); a TTL-cached config read instead of subscription plumbing; per-service Dockerfiles
+  duplicated on purpose — the price of independent deployability.
+- **CAP, chosen per operation:** intake favors **availability** (a 202 is always immediate);
+  status and reporting are **eventually consistent** projections of events; **money movements
+  favor consistency** — ETag compare-and-swap that rejects rather than overspends. Where money
+  moves, consistency beats availability; everywhere else, availability wins.
 
-1. **0002** — Orchestration mechanism: Dapr Workflow vs hand-rolled saga + state machine.
-2. **0003** — Router placement: in-process in the Orchestrator vs a standalone deterministic service.
-3. **0004** — LLM provider & the swappable-provider abstraction (+ the offline stub for CI).
-4. **0005** — Messaging broker: Redis Streams vs RabbitMQ for Dapr pub/sub.
-5. **0006** — The **autonomy posture** (the dilemma) — also written up in `PRODUCT-DILEMMA.md`.
+All key decisions are ADRs (`docs/adr/`): 0001 decomposition · 0002 Dapr Workflow ·
+0003 router in-process · 0005 Redis broker · 0006 the autonomy posture (+
+`PRODUCT-DILEMMA.md`) · 0007 RAG strategy · 0008 MCP server · 0009 data layer.
 
 ## 12. Requirements traceability
 
