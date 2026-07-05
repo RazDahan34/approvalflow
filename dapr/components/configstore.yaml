@@ -1,0 +1,14 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: configstore
+spec:
+  # Autonomy thresholds live here (M13/F7): a controller runs one redis SET and the
+  # router's next decisions enforce the new posture — no redeploy, no restart.
+  type: configuration.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: redis:6379
+scopes:
+  - orchestrator

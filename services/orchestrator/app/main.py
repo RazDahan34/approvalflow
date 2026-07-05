@@ -19,7 +19,7 @@ from dapr.ext.workflow import DaprWorkflowClient
 from fastapi import FastAPI, HTTPException, Request
 from pydantic import BaseModel
 
-from .workflow import ESCALATION_INDEX_KEY, invoice_lifecycle, wfr
+from .workflow import ESCALATION_INDEX_KEY, invoice_lifecycle, policy_source, wfr
 
 SERVICE = "orchestrator"
 
@@ -78,6 +78,18 @@ async def on_invoice_submitted(request: Request) -> dict:
             )
             return {"status": "RETRY"}
     return {"success": True}
+
+
+@app.get("/policy/posture")
+def current_posture() -> dict:
+    """The autonomy posture decisions are being made with RIGHT NOW (F7 visibility)."""
+    config = policy_source.current()
+    return {
+        "ceilingUsd": config.ceiling_usd,
+        "confidenceThreshold": config.confidence_threshold,
+        "categoryCeilingsUsd": {c.value: v for c, v in config.category_ceilings.items()},
+        "cacheTtlSeconds": policy_source.ttl,
+    }
 
 
 @app.get("/escalations")

@@ -21,7 +21,6 @@ stopped. The human pause is `wait_for_external_event`: durable by construction.
 import dapr.ext.workflow as wf
 from approvalflow_common import (
     AgentRecommendation,
-    PolicyConfig,
     get_correlation_id,
     get_logger,
     get_settings,
@@ -29,6 +28,7 @@ from approvalflow_common import (
     set_correlation_id,
 )
 from approvalflow_common.dapr_client import invoke_service, publish_event
+from approvalflow_common.policy_source import PolicySource
 from approvalflow_common.schemas import InvoiceSubmission, Route
 from approvalflow_common.state import DaprStateBackend
 from approvalflow_common.topics import INVOICE_DECIDED, INVOICE_STATUS_CHANGED
@@ -39,6 +39,9 @@ settings = get_settings()
 wfr = wf.WorkflowRuntime()
 
 ESCALATION_INDEX_KEY = "escalations:index"
+
+# Live autonomy posture (M13/F7) — TTL-cached reads from the Dapr config store.
+policy_source = PolicySource()
 
 
 def _backend() -> DaprStateBackend:
@@ -146,10 +149,9 @@ def decide(ctx: wf.WorkflowActivityContext, payload: dict) -> dict:
     invoice = InvoiceSubmission.model_validate(payload["invoice"])
 
     recommendation = _get_recommendation(invoice, tracking_id)
-    config = PolicyConfig(
-        ceiling_usd=settings.autonomy_ceiling_usd,
-        confidence_threshold=settings.autonomy_confidence,
-    )
+    # Live posture from the config store (M13/F7): tuning a threshold is a redis SET,
+    # not a redeploy. Falls back loudly to env defaults if the store is unreachable.
+    config = policy_source.current()
     decision = route_decision(invoice, recommendation, config)
 
     record = {

@@ -134,3 +134,9 @@ def audit_trail(any_id: str, request: Request):
 def autonomy_proof(request: Request):
     """Evidence that no auto-approval ever exceeded the ceiling (F10)."""
     return _proxy("audit", "autonomy/proof")
+
+
+@app.get("/config/posture")
+def config_posture(request: Request):
+    """The live autonomy posture the router is enforcing right now (F7/M13)."""
+    return _proxy("orchestrator", "policy/posture")
