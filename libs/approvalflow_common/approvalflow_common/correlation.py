@@ -8,8 +8,12 @@ import uuid
 from contextvars import ContextVar
 
 CORRELATION_ID_HEADER = "X-Correlation-ID"
+TRACEPARENT_HEADER = "traceparent"
 
 _correlation_id: ContextVar[str] = ContextVar("correlation_id", default="")
+# W3C trace context, carried alongside the correlation id so the distributed trace
+# survives async hops (pub/sub, workflow activity threads) — N4.
+_traceparent: ContextVar[str] = ContextVar("traceparent", default="")
 
 
 def new_correlation_id() -> str:
@@ -29,3 +33,11 @@ def ensure_correlation_id(value: str | None) -> str:
     cid = value or new_correlation_id()
     set_correlation_id(cid)
     return cid
+
+
+def get_traceparent() -> str:
+    return _traceparent.get()
+
+
+def set_traceparent(value: str | None) -> None:
+    _traceparent.set(value or "")

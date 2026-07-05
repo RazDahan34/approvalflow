@@ -46,6 +46,8 @@ def main() -> int:
             f"{ZIPKIN}/api/v2/traces", params={"serviceName": "gateway", "limit": 30}
         ).json()
         for trace in traces:
+            if not isinstance(trace, list):
+                continue
             services = {
                 span.get("localEndpoint", {}).get("serviceName", "") for span in trace
             } | {span.get("remoteEndpoint", {}).get("serviceName", "") for span in trace}

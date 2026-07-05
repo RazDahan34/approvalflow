@@ -10,18 +10,23 @@ import httpx
 from dapr.clients import DaprClient
 
 from .config import get_settings
-from .correlation import CORRELATION_ID_HEADER, get_correlation_id
+from .correlation import CORRELATION_ID_HEADER, TRACEPARENT_HEADER, get_correlation_id, get_traceparent
 
 
 def publish_event(topic: str, data: dict, pubsub_name: str | None = None) -> None:
     settings = get_settings()
+    # Carrying the W3C trace context on the CloudEvent keeps the distributed trace in
+    # one piece across the async hop (N4).
+    metadata = {"correlationId": get_correlation_id()}
+    if get_traceparent():
+        metadata["cloudevent.traceparent"] = get_traceparent()
     with DaprClient() as client:
         client.publish_event(
             pubsub_name=pubsub_name or settings.pubsub_name,
             topic_name=topic,
             data=json.dumps(data, default=str),
             data_content_type="application/json",
-            publish_metadata={"correlationId": get_correlation_id()},
+            publish_metadata=metadata,
         )
 
 
@@ -59,5 +64,7 @@ def invoke_service(
     settings = get_settings()
     url = f"http://localhost:{settings.dapr_http_port}/v1.0/invoke/{app_id}/method/{method}"
     headers = {CORRELATION_ID_HEADER: get_correlation_id()}
+    if get_traceparent():
+        headers[TRACEPARENT_HEADER] = get_traceparent()
     with httpx.Client(timeout=timeout) as client:
         return client.request(http_verb, url, json=json_body, headers=headers)

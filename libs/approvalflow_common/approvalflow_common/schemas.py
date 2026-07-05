@@ -73,4 +73,6 @@ class InvoiceSubmittedEvent(BaseModel):
     tracking_id: str = Field(alias="trackingId")
     correlation_id: str = Field(alias="correlationId")
     submitted_at: str = Field(alias="submittedAt")
+    # W3C trace context: lets the workflow's activities re-join the original trace (N4).
+    traceparent: str | None = None
     invoice: InvoiceSubmission

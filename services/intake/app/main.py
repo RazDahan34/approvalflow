@@ -13,6 +13,7 @@ import uuid
 from datetime import UTC, datetime
 
 from approvalflow_common import create_app, get_correlation_id, get_logger, get_settings, set_correlation_id
+from approvalflow_common.correlation import get_traceparent
 from approvalflow_common.dapr_client import publish_event
 from approvalflow_common.schemas import InvoiceSubmission, InvoiceSubmittedEvent
 from approvalflow_common.state import DaprStateBackend
@@ -59,6 +60,7 @@ def submit_invoice(invoice: InvoiceSubmission) -> dict:
         trackingId=tracking_id,
         correlationId=cid,
         submittedAt=datetime.now(UTC).isoformat(),
+        traceparent=get_traceparent() or None,
         invoice=invoice,
     )
     publish_event(INVOICE_SUBMITTED, event.model_dump(by_alias=True))
