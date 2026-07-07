@@ -83,7 +83,9 @@
       <label>Invoice JSON</label>
       <textarea id="payload"></textarea>
       <button class="action" onclick="submitInvoice()">Submit →</button>
+      <button class="action ghost" id="dupBtn" onclick="submitDuplicate()" style="display:none">Submit again — same invoice (duplicate test)</button>
       <pre id="submitOut">—</pre>
+      <div class="muted" style="margin-top:6px">Tip: submit, then use "Submit again" to send the identical invoice — it is short-circuited as a duplicate (INV-1007 / F3).</div>
     </div></section>
 
     <!-- ─────────── Track ─────────── -->
@@ -131,7 +133,16 @@
     </div></section>
   </main>
 
+  <div id="toast" style="position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--card); border:1px solid var(--accent); color:var(--text); padding:12px 18px; border-radius:10px; display:none; z-index:100; max-width:560px; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.4);"></div>
+
   <script>
+    let toastTimer = null;
+    function toast(msg) {
+      const t = document.getElementById("toast");
+      t.textContent = msg; t.style.display = "block";
+      clearTimeout(toastTimer);
+      toastTimer = setTimeout(() => { t.style.display = "none"; }, 5000);
+    }
     const API = "http://localhost:8080";
     document.getElementById("api").textContent = API;
     let eventSource = null, refreshTimer = null;
@@ -226,10 +237,28 @@
         });
         const data = await r.json();
         out.textContent = "HTTP " + r.status + "\n" + JSON.stringify(data, null, 2);
+        document.getElementById("dupBtn").style.display = "inline-block";
         if (data.trackingId) {
           document.getElementById("tid").value = data.trackingId;
           show("track"); connectTracking();
         }
+      } catch (e) { out.textContent = "error: " + e; }
+    }
+
+    // Resubmit the EXACT same payload (unchanged invoiceNumber) -> caught as a duplicate.
+    async function submitDuplicate() {
+      const out = document.getElementById("submitOut");
+      out.textContent = "resubmitting the identical invoice…";
+      try {
+        const r = await fetch(API + "/invoices", {
+          method: "POST", headers: { "Content-Type": "application/json" },
+          body: document.getElementById("payload").value
+        });
+        const data = await r.json();
+        out.textContent = "HTTP " + r.status + "\n" + JSON.stringify(data, null, 2);
+        toast(data.duplicate
+          ? "✔ Duplicate short-circuited — same tracking id, no second payment (INV-1007 · F3 · M10)."
+          : "Not flagged as duplicate — the invoice JSON must have changed (new invoiceNumber?).");
       } catch (e) { out.textContent = "error: " + e; }
     }
 
@@ -308,11 +337,20 @@
 
     async function act(tid, action) {
       const note = document.getElementById("note-" + tid)?.value || "";
+      if (action === "request_info" && !note.trim()) {
+        toast("Type a question for the submitter in the note field first.");
+        return;
+      }
       // No approver field: the gateway stamps the identity from the verified token.
       await fetch(`${API}/approvals/${tid}/decision`, {
         method: "POST", headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ action, note })
       });
+      toast({
+        approve: "✔ Approved — the payment saga is running. Watch it in the Track tab.",
+        reject: "✔ Rejected.",
+        request_info: "✔ Sent back to the submitter — it leaves this queue and returns once they reply (the question shows in their Track tab)."
+      }[action] || "Done.");
       loadQueue();
     }
 
