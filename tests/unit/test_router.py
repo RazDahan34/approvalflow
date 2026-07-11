@@ -109,6 +109,19 @@ def test_unknown_currency_fails_closed_even_under_ceiling():
     assert "GLOBAL-FX" in d.rule_ids
 
 
+def test_business_class_is_caught_deterministically_even_if_the_agent_misses():
+    # TRAVEL-03 is a hard stop: a $400 business-class fare sits under the $500 travel
+    # ceiling, so if only the agent could flag it, a blind model would let it through.
+    sneaky = inv(
+        total=400.0,
+        category="travel",
+        lineItems=[{"description": "Flight upgrade to Business Class", "quantity": 1, "unitPrice": 400.0}],
+    )
+    d = route_decision(sneaky, rec(route="auto_approve", confidence=1.0, category="travel"), CFG)
+    assert d.route is Route.human_review
+    assert "TRAVEL-03" in d.rule_ids
+
+
 def test_small_known_fx_can_still_auto_approve():
     # Fail-closed must not mean fail-everything: a small EUR item with a known rate
     # (~$54) stays autonomous. Guards against over-blocking (F6).

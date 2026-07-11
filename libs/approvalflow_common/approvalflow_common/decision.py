@@ -66,6 +66,10 @@ class RouterDecision(BaseModel):
     reasons: list[str] = Field(default_factory=list)
     amount_usd: float = 0.0
     plain_reason: str = ""
+    # The ceiling actually enforced for THIS decision (min of envelope and category
+    # tier) — recorded on the decided event so the F10 audit evidence reflects the
+    # config at decision time, not whatever it is when someone asks.
+    enforced_ceiling_usd: float = 0.0
 
 
 def to_usd(invoice: InvoiceSubmission) -> float:
@@ -154,6 +158,7 @@ def route_decision(
         reasons=reasons,
         amount_usd=amount,
         plain_reason=plain,
+        enforced_ceiling_usd=effective_ceiling,
     )
 
 
@@ -187,5 +192,15 @@ def _check_category(
                 "TRAVEL-02",
                 f"Single travel expense ${amount:.2f} over ${config.travel_single_cap:.0f} needs manager approval.",
             )
-        if "TRAVEL-03" in rec.policy_violations:
+        # TRAVEL-03 is a hard stop in policy.md, so the router checks it BOTH ways:
+        # a deterministic text sweep (a premium-cabin fare under the travel ceiling
+        # must not slip through a blind model) plus whatever the agent flagged.
+        travel_text = " ".join(
+            [invoice.notes or ""] + [item.description for item in invoice.line_items]
+        ).lower()
+        premium_marker = any(
+            marker in travel_text
+            for marker in ("business class", "business-class", "first class", "first-class")
+        )
+        if premium_marker or "TRAVEL-03" in rec.policy_violations:
             block("TRAVEL-03", "First/business-class travel always requires approval.")

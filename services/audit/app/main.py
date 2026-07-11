@@ -13,6 +13,7 @@ from collections.abc import Callable
 from datetime import UTC, datetime
 
 from approvalflow_common import create_app, get_logger, get_settings, set_correlation_id
+from approvalflow_common.projections import SEEN_KEY, append_once, apply_once
 from approvalflow_common.state import DaprStateBackend
 from approvalflow_common.topics import INVOICE_DECIDED, INVOICE_STATUS_CHANGED, INVOICE_SUBMITTED
 from dapr.ext.fastapi import DaprApp
@@ -56,15 +57,21 @@ def _update(key: str, mutate: Callable[[dict], dict], empty: dict) -> None:
                 return
         elif backend.save_cas(key, mutate(current), etag):
             return
-    log.error("audit update lost after retries", extra={"key": key})
+    # Never drop an audit event silently: raising turns into a 500 on the
+    # subscription, so Dapr redelivers and the (deduped) update tries again.
+    log.error("audit update contended out; requesting redelivery", extra={"key": key})
+    raise RuntimeError(f"audit update lost CAS 8 times for {key}")
 
 
-def _append_trail(correlation_id: str, entry: dict) -> None:
-    def mutate(trail: dict) -> dict:
-        trail.setdefault("events", []).append(entry)
-        return trail
+def _update_once(key: str, event_id: str, mutate: Callable[[dict], dict], empty: dict) -> None:
+    """Exactly-once projection update: pub/sub is at-least-once, so a redelivered
+    event must not double-count (M10). The dedup mark and the mutation persist in
+    the same CAS write."""
+    _update(key, lambda doc: apply_once(doc, event_id, mutate), empty)
 
-    _update(f"trail:{correlation_id}", mutate, {"events": []})
+
+def _append_trail(correlation_id: str, event_id: str, entry: dict) -> None:
+    _update(f"trail:{correlation_id}", lambda t: append_once(t, event_id, entry), {"events": []})
 
 
 def _now() -> str:
@@ -75,6 +82,7 @@ def _now() -> str:
 async def on_submitted(request: Request) -> dict:
     envelope = await request.json()
     data = envelope.get("data", envelope)
+    event_id = envelope.get("id", "")  # CloudEvent id: stable across redeliveries
     set_correlation_id(cid := data.get("correlationId", ""))
     tracking_id = data.get("trackingId", "")
     invoice = data.get("invoice", {})
@@ -82,6 +90,7 @@ async def on_submitted(request: Request) -> dict:
     _backend().try_create(f"tmap:{tracking_id}", {"correlationId": cid})
     _append_trail(
         cid,
+        event_id,
         {
             "at": data.get("submittedAt") or _now(),
             "type": "submitted",
@@ -97,7 +106,7 @@ async def on_submitted(request: Request) -> dict:
         metrics["submitted"] += 1
         return metrics
 
-    _update(METRICS_KEY, mutate, EMPTY_METRICS)
+    _update_once(METRICS_KEY, event_id, mutate, EMPTY_METRICS)
     return {"success": True}
 
 
@@ -105,6 +114,7 @@ async def on_submitted(request: Request) -> dict:
 async def on_decided(request: Request) -> dict:
     envelope = await request.json()
     data = envelope.get("data", envelope)
+    event_id = envelope.get("id", "")
     set_correlation_id(cid := data.get("correlationId", ""))
     tracking_id = data.get("trackingId", "")
     autonomous = bool(data.get("autonomous"))
@@ -117,6 +127,7 @@ async def on_decided(request: Request) -> dict:
     )
     _append_trail(
         cid,
+        event_id,
         {
             "at": data.get("decidedAt") or _now(),
             "type": "decided",
@@ -139,19 +150,23 @@ async def on_decided(request: Request) -> dict:
             metrics["rejected_by_router"] += 1
         return metrics
 
-    _update(METRICS_KEY, mutate, EMPTY_METRICS)
+    _update_once(METRICS_KEY, event_id, mutate, EMPTY_METRICS)
 
     if autonomous:
-        envelope_usd = settings.autonomy_ceiling_usd
+        # The ceiling actually ENFORCED at decision time rides on the event itself —
+        # a runtime config change cannot retroactively skew the F10 evidence.
+        enforced_ceiling = float(data.get("enforcedCeilingUsd") or settings.autonomy_ceiling_usd)
 
         def ledger_mutate(ledger: dict) -> dict:
             ledger["autonomous_count"] += 1
             ledger["max_autonomous_usd"] = max(ledger["max_autonomous_usd"], amount)
-            if amount > envelope_usd:  # must never happen — recorded as hard evidence (F10)
-                ledger["violations"].append({"trackingId": tracking_id, "amountUsd": amount, "at": _now()})
+            if amount > enforced_ceiling:  # must never happen — recorded as hard evidence (F10)
+                ledger["violations"].append(
+                    {"trackingId": tracking_id, "amountUsd": amount, "ceilingUsd": enforced_ceiling, "at": _now()}
+                )
             return ledger
 
-        _update(LEDGER_KEY, ledger_mutate, EMPTY_LEDGER)
+        _update_once(LEDGER_KEY, event_id, ledger_mutate, EMPTY_LEDGER)
     return {"success": True}
 
 
@@ -159,6 +174,7 @@ async def on_decided(request: Request) -> dict:
 async def on_status_changed(request: Request) -> dict:
     envelope = await request.json()
     data = envelope.get("data", envelope)
+    event_id = envelope.get("id", "")
     set_correlation_id(cid := data.get("correlationId", ""))
     tracking_id = data.get("trackingId", "")
     status = data.get("status", "")
@@ -168,7 +184,7 @@ async def on_status_changed(request: Request) -> dict:
         entry["decidedBy"] = data["decidedBy"]
     if data.get("reason"):
         entry["reason"] = data["reason"]
-    _append_trail(cid, entry)
+    _append_trail(cid, event_id, entry)
 
     if status in ("paid", "payment_failed"):
         decision, _ = _backend().get(f"adecision:{tracking_id}")
@@ -180,7 +196,7 @@ async def on_status_changed(request: Request) -> dict:
                 metrics[bucket] = round(metrics[bucket] + decision.get("amountUsd", 0.0), 2)
             return metrics
 
-        _update(METRICS_KEY, mutate, EMPTY_METRICS)
+        _update_once(METRICS_KEY, event_id, mutate, EMPTY_METRICS)
     return {"success": True}
 
 
@@ -205,6 +221,7 @@ def metrics_summary() -> dict:
     """Dashboard aggregates (F8)."""
     metrics, _ = _backend().get(METRICS_KEY)
     metrics = metrics or dict(EMPTY_METRICS)
+    metrics.pop(SEEN_KEY, None)  # internal dedup bookkeeping, not a metric
     decided = metrics["decided"] or 1
     metrics["auto_rate"] = round(metrics["auto_approved"] / decided, 3)
     metrics["escalation_rate"] = round(metrics["escalated"] / decided, 3)
@@ -213,11 +230,16 @@ def metrics_summary() -> dict:
 
 @app.get("/autonomy/proof")
 def autonomy_proof() -> dict:
-    """The auditor's F10 query: evidence that autonomy never exceeded the ceiling."""
+    """The auditor's F10 query: evidence that autonomy never exceeded the ceiling.
+
+    Violations are judged against the ceiling ENFORCED at each decision (carried on
+    the decided event), so runtime config changes cannot skew the evidence;
+    `currentEnvelopeUsd` is shown for reference only."""
     ledger, _ = _backend().get(LEDGER_KEY)
     ledger = ledger or dict(EMPTY_LEDGER)
+    ledger.pop(SEEN_KEY, None)
     return {
-        "envelopeUsd": settings.autonomy_ceiling_usd,
+        "currentEnvelopeUsd": settings.autonomy_ceiling_usd,
         **ledger,
         "ceilingRespected": not ledger["violations"],
     }
