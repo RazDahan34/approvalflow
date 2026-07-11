@@ -13,13 +13,17 @@ from .config import get_settings
 from .correlation import CORRELATION_ID_HEADER, TRACEPARENT_HEADER, get_correlation_id, get_traceparent
 
 
-def publish_event(topic: str, data: dict, pubsub_name: str | None = None) -> None:
+def publish_event(topic: str, data: dict, pubsub_name: str | None = None, event_id: str | None = None) -> None:
     settings = get_settings()
     # Carrying the W3C trace context on the CloudEvent keeps the distributed trace in
     # one piece across the async hop (N4).
     metadata = {"correlationId": get_correlation_id()}
     if get_traceparent():
         metadata["cloudevent.traceparent"] = get_traceparent()
+    if event_id:
+        # Deterministic CloudEvent id: a retried workflow activity re-publishes the
+        # SAME id, so consumers' per-event dedup keeps the effect exactly-once (M10).
+        metadata["cloudevent.id"] = event_id
     with DaprClient() as client:
         client.publish_event(
             pubsub_name=pubsub_name or settings.pubsub_name,

@@ -18,6 +18,8 @@ stopped. The human pause is `wait_for_external_event`: durable by construction.
                                                             finalize(payment_failed)
 """
 
+from datetime import timedelta
+
 import dapr.ext.workflow as wf
 from approvalflow_common import (
     AgentRecommendation,
@@ -40,6 +42,14 @@ settings = get_settings()
 wfr = wf.WorkflowRuntime()
 
 ESCALATION_INDEX_KEY = "escalations:index"
+
+# Money steps retry on transport failures (the claim gates in the payment service
+# make replays exactly-once); business denials return ok:False and are never retried.
+MONEY_RETRY = wf.RetryPolicy(
+    first_retry_interval=timedelta(seconds=2),
+    max_number_of_attempts=5,
+    backoff_coefficient=2.0,
+)
 
 # Live autonomy posture (M13/F7) — TTL-cached reads from the Dapr config store.
 policy_source = PolicySource()
@@ -102,7 +112,7 @@ def invoice_lifecycle(ctx: wf.DaprWorkflowContext, payload: dict):
         "amountUsd": decision["amountUsd"],
         "scenario": payload["invoice"].get("scenario"),
     }
-    reserved = yield ctx.call_activity(reserve_budget, input=money)
+    reserved = yield ctx.call_activity(reserve_budget, input=money, retry_policy=MONEY_RETRY)
     if not reserved["ok"]:
         yield ctx.call_activity(
             finalize,
@@ -114,10 +124,10 @@ def invoice_lifecycle(ctx: wf.DaprWorkflowContext, payload: dict):
         )
         return {**decision, "finalStatus": "rejected_insufficient_budget"}
 
-    paid = yield ctx.call_activity(execute_payment, input=money)
+    paid = yield ctx.call_activity(execute_payment, input=money, retry_policy=MONEY_RETRY)
     if not paid["ok"]:
         # COMPENSATION: undo the reservation — no orphans, no partial payments.
-        yield ctx.call_activity(release_budget, input=money)
+        yield ctx.call_activity(release_budget, input=money, retry_policy=MONEY_RETRY)
         yield ctx.call_activity(
             finalize,
             input={
@@ -144,13 +154,34 @@ def invoice_lifecycle(ctx: wf.DaprWorkflowContext, payload: dict):
 # ─────────────────────────────── activities ───────────────────────────────
 
 
+def _status_for_route(route: str) -> str:
+    return "auto_approved" if route == Route.auto_approve.value else (
+        "pending_approval" if route == Route.human_review.value else "rejected"
+    )
+
+
 @wfr.activity(name="decide")
 def decide(ctx: wf.WorkflowActivityContext, payload: dict) -> dict:
     set_correlation_id(payload.get("correlationId", ""))
     set_traceparent(payload.get("traceparent", ""))
     tracking_id = payload["trackingId"]
-    invoice = InvoiceSubmission.model_validate(payload["invoice"])
 
+    # Replayed activity (crash after publish, before ack): return the STORED decision
+    # and re-emit with the same deterministic event ids — consumers dedup, the agent
+    # is not consulted twice, and the stored truth wins over model nondeterminism.
+    existing, _ = _backend().get(f"decision:{tracking_id}")
+    if existing:
+        log.info("decide replayed from the stored record", extra={"trackingId": tracking_id})
+        publish_event(INVOICE_DECIDED, existing, event_id=f"decided-{tracking_id}")
+        _publish_status(
+            payload,
+            _status_for_route(existing["route"]),
+            existing["plainReason"],
+            event_id=f"status-{tracking_id}-decided",
+        )
+        return existing
+
+    invoice = InvoiceSubmission.model_validate(payload["invoice"])
     recommendation = _get_recommendation(invoice, tracking_id)
     # Live posture from the config store (M13/F7): tuning a threshold is a redis SET,
     # not a redeploy. Falls back loudly to env defaults if the store is unreachable.
@@ -163,18 +194,17 @@ def decide(ctx: wf.WorkflowActivityContext, payload: dict) -> dict:
         "route": decision.route.value,
         "autonomous": decision.autonomous,
         "amountUsd": decision.amount_usd,
+        "enforcedCeilingUsd": decision.enforced_ceiling_usd,
         "ruleIds": decision.rule_ids,
         "reasons": decision.reasons,
         "plainReason": decision.plain_reason,
         "agent": recommendation.model_dump(),
     }
     _backend().try_create(f"decision:{tracking_id}", record)
-    publish_event(INVOICE_DECIDED, record)
+    publish_event(INVOICE_DECIDED, record, event_id=f"decided-{tracking_id}")
 
-    status = "auto_approved" if decision.route is Route.auto_approve else (
-        "pending_approval" if decision.route is Route.human_review else "rejected"
-    )
-    _publish_status(payload, status, decision.plain_reason)
+    status = _status_for_route(decision.route.value)
+    _publish_status(payload, status, decision.plain_reason, event_id=f"status-{tracking_id}-decided")
     log.info(
         "decision routed",
         extra={
@@ -262,7 +292,15 @@ def release_budget(ctx: wf.WorkflowActivityContext, money: dict) -> dict:
 def finalize(ctx: wf.WorkflowActivityContext, payload: dict) -> None:
     set_correlation_id(payload.get("correlationId", ""))
     set_traceparent(payload.get("traceparent", ""))
-    _publish_status(payload, payload["status"], payload["reason"], decided_by=payload.get("decidedBy"))
+    # Terminal statuses happen once per invoice, so the event id is deterministic:
+    # a replayed finalize re-emits the SAME id and consumers dedup it (M10).
+    _publish_status(
+        payload,
+        payload["status"],
+        payload["reason"],
+        decided_by=payload.get("decidedBy"),
+        event_id=f"status-{payload['trackingId']}-{payload['status']}",
+    )
     log.info(
         "workflow finalized",
         extra={"event": "finalized", "trackingId": payload["trackingId"], "status": payload["status"]},
@@ -295,15 +333,22 @@ def _call_payment(method: str, body: dict) -> dict:
     try:
         response = invoke_service("payment", method, "POST", body, timeout=30)
         if response.status_code == 200:
+            # A 200 may still carry ok:False — that is a *business* denial
+            # (insufficient budget, injected failure) and must not be retried.
             return response.json()
-        log.error("payment call failed", extra={"method": method, "status": response.status_code})
-        return {"ok": False, "reason": f"payment_{response.status_code}"}
     except Exception as exc:
         log.error("payment invocation error", extra={"method": method, "error": str(exc)})
-        return {"ok": False, "reason": "payment_unreachable"}
+        raise RuntimeError(f"payment {method} unreachable: {exc}") from exc
+    # Transport/5xx failures RAISE so the workflow retries the activity with backoff
+    # (idempotent claim gates make the retry safe) — swallowing them into ok:False
+    # would wrongly reject the invoice as "cannot fund".
+    log.error("payment call failed", extra={"method": method, "status": response.status_code})
+    raise RuntimeError(f"payment {method} responded {response.status_code}")
 
 
-def _publish_status(payload: dict, status: str, reason: str, decided_by: str | None = None) -> None:
+def _publish_status(
+    payload: dict, status: str, reason: str, decided_by: str | None = None, event_id: str | None = None
+) -> None:
     event = {
         "trackingId": payload["trackingId"],
         "correlationId": payload.get("correlationId", get_correlation_id()),
@@ -312,7 +357,7 @@ def _publish_status(payload: dict, status: str, reason: str, decided_by: str | N
     }
     if decided_by:
         event["decidedBy"] = decided_by
-    publish_event(INVOICE_STATUS_CHANGED, event)
+    publish_event(INVOICE_STATUS_CHANGED, event, event_id=event_id)
 
 
 def _overwrite(backend: DaprStateBackend, key: str, value: dict) -> bool:
