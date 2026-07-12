@@ -3,58 +3,230 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>ApprovalFlow</title>
+  <meta name="color-scheme" content="dark" />
+  <title>ApprovalFlow — AI invoice approvals</title>
+  <link rel="icon" href="data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20viewBox='0%200%2032%2032'%3E%3Cdefs%3E%3ClinearGradient%20id='g'%20x1='0'%20y1='0'%20x2='1'%20y2='1'%3E%3Cstop%20offset='0'%20stop-color='%236366f1'/%3E%3Cstop%20offset='1'%20stop-color='%2322d3ee'/%3E%3C/linearGradient%3E%3C/defs%3E%3Crect%20width='32'%20height='32'%20rx='9'%20fill='url(%23g)'/%3E%3Cpath%20d='M9%2016.5l4.5%204.5L23%2011.5'%20stroke='%23fff'%20stroke-width='3'%20stroke-linecap='round'%20stroke-linejoin='round'%20fill='none'/%3E%3C/svg%3E" />
   <style>
-    :root { --bg:#0f172a; --card:#1e293b; --line:#334155; --text:#e2e8f0; --muted:#94a3b8;
-            --accent:#38bdf8; --ok:#22c55e; --warn:#f59e0b; --bad:#ef4444; }
-    * { box-sizing: border-box; }
-    body { margin:0; font-family: system-ui, sans-serif; background:var(--bg); color:var(--text); }
-    header { padding:16px 28px; border-bottom:1px solid var(--line); display:flex; align-items:baseline; gap:18px; }
-    header h1 { margin:0; font-size:20px; }
-    header p { margin:0; color:var(--muted); font-size:12px; }
-    nav { display:flex; gap:6px; padding:10px 24px 0; }
-    nav button { background:none; border:1px solid var(--line); border-bottom:none; color:var(--muted);
-                 padding:9px 18px; border-radius:10px 10px 0 0; cursor:pointer; font-size:14px; }
-    nav button.active { background:var(--card); color:var(--accent); font-weight:600; }
-    main { max-width:1000px; margin:0 auto 40px; padding:0 20px; }
+    :root {
+      --bg:#090e1c; --card:#131c33; --card-2:#101828; --panel:#111a30; --input:#0a1122;
+      --line:#22304f; --line-soft:#1b2742;
+      --text:#e8edf7; --muted:#8fa0bd; --faint:#5b6c8c;
+      --accent:#38bdf8; --a1:#6366f1; --a2:#0ea5e9;
+      --ok:#34d399; --warn:#fbbf24; --bad:#f87171;
+    }
+    * { box-sizing:border-box; }
+    html { scrollbar-color:#243050 #0a1122; }
+    body {
+      margin:0; color:var(--text);
+      font-family:"Segoe UI Variable Display","Segoe UI",system-ui,-apple-system,sans-serif;
+      background:
+        radial-gradient(900px 500px at 12% -10%, rgba(99,102,241,.16), transparent 60%),
+        radial-gradient(800px 500px at 105% 15%, rgba(34,211,238,.10), transparent 55%),
+        var(--bg);
+      background-attachment:fixed;
+      min-height:100vh;
+    }
+    ::-webkit-scrollbar { width:9px; height:9px; }
+    ::-webkit-scrollbar-thumb { background:#243050; border-radius:8px; }
+    ::-webkit-scrollbar-track { background:transparent; }
+
+    /* ── header ── */
+    header {
+      position:sticky; top:0; z-index:50;
+      display:flex; align-items:center; gap:14px; flex-wrap:wrap;
+      padding:12px 26px;
+      background:rgba(9,14,28,.82); backdrop-filter:blur(14px);
+      border-bottom:1px solid var(--line-soft);
+    }
+    .brand { display:flex; align-items:center; gap:11px; }
+    .brand h1 { margin:0; font-size:17.5px; font-weight:700; letter-spacing:.2px; }
+    .brand p { margin:1px 0 0; color:var(--muted); font-size:11.5px; }
+    .brand code { font-family:Consolas,ui-monospace,monospace; font-size:10.5px; color:var(--faint);
+                  background:var(--input); border:1px solid var(--line-soft); border-radius:5px; padding:1px 6px; }
+    .auth { margin-inline-start:auto; display:flex; gap:8px; align-items:center; flex-wrap:wrap; }
+
+    /* ── nav ── */
+    .navwrap { max-width:1080px; margin:18px auto 0; padding:0 20px; }
+    nav { display:inline-flex; gap:2px; padding:4px; background:#0e1730; border:1px solid var(--line-soft); border-radius:13px; }
+    nav button {
+      display:inline-flex; align-items:center; gap:7px;
+      background:none; border:none; color:var(--muted); cursor:pointer;
+      padding:8px 16px; border-radius:9px; font-size:13.5px; font-weight:600; font-family:inherit;
+      transition:color .15s, background .15s;
+    }
+    nav button svg { width:15px; height:15px; }
+    nav button:hover { color:var(--text); background:#16203a; }
+    nav button.active { background:linear-gradient(135deg,var(--a1),var(--a2)); color:#fff;
+                        box-shadow:0 4px 14px -6px rgba(99,102,241,.8); }
+
+    /* ── layout ── */
+    main { max-width:1080px; margin:14px auto 26px; padding:0 20px; }
     .tab { display:none; } .tab.active { display:block; }
-    .card { background:var(--card); border:1px solid var(--line); border-radius:0 12px 12px 12px; padding:18px; margin-top:0; }
-    .grid { display:grid; gap:16px; grid-template-columns:1fr 1fr; }
-    label { display:block; font-size:12px; color:var(--muted); margin:10px 0 4px; }
-    textarea, input, select { width:100%; background:#0b1220; color:var(--text); border:1px solid var(--line);
-                      border-radius:8px; padding:9px; font-family:ui-monospace, monospace; font-size:12px; }
-    textarea { height:250px; resize:vertical; }
-    button.action { margin-top:10px; background:var(--accent); color:#04283a; border:none; border-radius:8px;
-             padding:9px 16px; font-weight:600; cursor:pointer; }
-    button.action:hover { filter:brightness(1.08); }
-    button.small { padding:6px 12px; font-size:12px; margin-right:6px; }
-    button.ghost { background:transparent; color:var(--accent); border:1px solid var(--accent); }
-    button.danger { background:var(--bad); color:#fff; }
-    pre, .log { background:#0b1220; border:1px solid var(--line); border-radius:8px; padding:12px;
-          font-size:12px; white-space:pre-wrap; word-break:break-word; min-height:36px; margin-top:10px; font-family:ui-monospace, monospace;}
-    .pill { display:inline-block; padding:2px 10px; border-radius:999px; font-size:11px; font-weight:700; }
-    .pill.ok { background:#052e16; color:var(--ok); } .pill.warn { background:#3b2905; color:var(--warn); }
-    .pill.bad { background:#3f0d0d; color:var(--bad); } .pill.info { background:#082f49; color:var(--accent); }
-    .item { border:1px solid var(--line); border-radius:10px; padding:14px; margin-top:12px; background:#111c30; }
-    .item h3 { margin:0 0 6px; font-size:14px; }
-    .item .meta { color:var(--muted); font-size:12px; margin-bottom:8px; }
-    .stats { display:grid; grid-template-columns:repeat(4, 1fr); gap:12px; margin-bottom:16px; }
-    .stat { background:#111c30; border:1px solid var(--line); border-radius:10px; padding:14px; text-align:center; }
-    .stat .v { font-size:26px; font-weight:700; color:var(--accent); }
-    .stat .l { font-size:11px; color:var(--muted); margin-top:4px; }
-    .bar { height:10px; border-radius:6px; background:#0b1220; overflow:hidden; margin-top:6px; }
-    .bar > div { height:100%; background:var(--ok); }
-    .muted { color:var(--muted); font-size:12px; }
-    @media (max-width: 800px) { .grid { grid-template-columns:1fr; } .stats { grid-template-columns:repeat(2,1fr);} }
+    .card {
+      background:linear-gradient(180deg,var(--card),var(--card-2));
+      border:1px solid var(--line); border-radius:16px; padding:22px;
+      box-shadow:0 14px 40px -18px rgba(0,0,0,.6);
+      animation:fadeUp .35s ease both;
+    }
+    .card-title { margin:0; font-size:15.5px; font-weight:700; }
+    .card-sub { margin:3px 0 14px; color:var(--muted); font-size:12.5px; }
+    .grid { display:grid; gap:18px; grid-template-columns:1fr 1fr; }
+    @keyframes fadeUp { from { opacity:0; transform:translateY(6px); } to { opacity:1; transform:none; } }
+
+    /* ── forms & buttons ── */
+    label { display:block; font-size:11.5px; font-weight:600; letter-spacing:.3px; text-transform:uppercase;
+            color:var(--faint); margin:12px 0 5px; }
+    textarea, input, select {
+      width:100%; background:var(--input); color:var(--text);
+      border:1px solid var(--line); border-radius:10px; padding:9px 11px;
+      font-family:"Cascadia Mono",Consolas,ui-monospace,monospace; font-size:12px;
+      transition:border-color .15s, box-shadow .15s;
+    }
+    input::placeholder, textarea::placeholder { color:var(--faint); }
+    textarea:focus, input:focus, select:focus {
+      outline:none; border-color:var(--a1); box-shadow:0 0 0 3px rgba(99,102,241,.22);
+    }
+    textarea { height:240px; resize:vertical; }
+    header input, header select { width:150px; font-family:inherit; font-size:12.5px; }
+    header select { width:120px; }
+    button.action {
+      margin-top:10px; border:none; border-radius:10px; cursor:pointer; font-family:inherit;
+      background:linear-gradient(135deg,var(--a1),var(--a2)); color:#fff;
+      padding:10px 18px; font-weight:600; font-size:13.5px;
+      box-shadow:0 6px 18px -8px rgba(99,102,241,.7);
+      transition:transform .12s, filter .12s;
+    }
+    button.action:hover { filter:brightness(1.08); transform:translateY(-1px); }
+    button.action:active { transform:none; }
+    button.small { padding:7px 13px; font-size:12.5px; }
+    button.ghost { background:#14203b; color:#9db4e8; border:1px solid #2b3a61; box-shadow:none; }
+    button.ghost:hover { border-color:var(--accent); color:var(--accent); }
+    button.danger { background:linear-gradient(135deg,#ef4444,#dc2626); color:#fff;
+                    box-shadow:0 6px 18px -8px rgba(239,68,68,.6); }
+    .samples { display:flex; gap:8px; flex-wrap:wrap; }
+    .samples button { border-radius:999px; display:inline-flex; align-items:center; gap:7px; margin-top:0; }
+    .dot { display:inline-block; width:7px; height:7px; border-radius:50%; }
+    .dot.ok { background:var(--ok); } .dot.warn { background:var(--warn); } .dot.bad { background:var(--bad); }
+    .dot.info { background:var(--accent); }
+    .btnrow { display:flex; gap:8px; flex-wrap:wrap; align-items:center; }
+
+    /* ── output panels ── */
+    pre, .log {
+      background:var(--input); border:1px solid var(--line-soft); border-radius:12px; padding:13px;
+      font-size:12px; line-height:1.55; white-space:pre-wrap; word-break:break-word;
+      min-height:38px; margin-top:10px; font-family:"Cascadia Mono",Consolas,ui-monospace,monospace;
+    }
+    .log { max-height:360px; overflow-y:auto; font-family:inherit; }
+    .muted { color:var(--muted); font-size:12.5px; }
+
+    /* ── pills & chips ── */
+    .pill { display:inline-block; padding:3px 11px; border-radius:999px; font-size:11px; font-weight:700;
+            letter-spacing:.2px; border:1px solid transparent; }
+    .pill.ok   { background:rgba(52,211,153,.12);  color:var(--ok);     border-color:rgba(52,211,153,.3); }
+    .pill.warn { background:rgba(251,191,36,.10);  color:var(--warn);   border-color:rgba(251,191,36,.3); }
+    .pill.bad  { background:rgba(248,113,113,.12); color:var(--bad);    border-color:rgba(248,113,113,.3); }
+    .pill.info { background:rgba(56,189,248,.12);  color:var(--accent); border-color:rgba(56,189,248,.3); }
+    .pill.big  { font-size:13px; padding:6px 15px; }
+    .chip { font-family:Consolas,ui-monospace,monospace; font-size:11px; color:var(--muted);
+            background:var(--input); border:1px solid var(--line-soft); border-radius:6px; padding:2px 8px; }
+
+    /* ── approval items ── */
+    .item { border:1px solid var(--line); border-radius:14px; padding:18px; margin-top:14px;
+            background:var(--panel); animation:fadeUp .3s ease both; }
+    .item-head { display:flex; justify-content:space-between; align-items:baseline; gap:12px; }
+    .item-head h3 { margin:0; font-size:15.5px; display:inline; }
+    .amount { font-size:21px; font-weight:800; font-variant-numeric:tabular-nums; white-space:nowrap;
+              background:linear-gradient(135deg,#a5b4fc,#22d3ee); -webkit-background-clip:text;
+              background-clip:text; color:transparent; }
+    .item .meta { color:var(--muted); font-size:12px; margin-top:8px; }
+    .agent-box { background:var(--card-2); border:1px solid var(--line-soft); border-left:3px solid var(--a1);
+                 border-radius:10px; padding:12px 14px; margin:12px 0; }
+    .agent-row { font-size:12.5px; color:var(--muted); margin-bottom:7px; }
+    .agent-row b { color:var(--text); }
+    .conf-num { float:right; font-variant-numeric:tabular-nums; }
+    .meter { height:6px; border-radius:999px; background:var(--input); overflow:hidden; }
+    .meter > div { height:100%; background:linear-gradient(90deg,var(--a1),var(--a2)); border-radius:999px; }
+    .reply { margin-top:10px; background:rgba(251,191,36,.07); border:1px solid rgba(251,191,36,.25);
+             border-radius:8px; padding:8px 11px; font-size:12.5px; }
+    .actions { margin-top:12px; }
+    .actions input { margin-bottom:9px; font-family:inherit; }
+
+    /* ── dashboard ── */
+    .stats { display:grid; grid-template-columns:repeat(4,1fr); gap:13px; margin-bottom:18px; }
+    .stat { background:var(--panel); border:1px solid var(--line); border-radius:14px; padding:15px 16px;
+            animation:fadeUp .3s ease both; }
+    .stat .v { font-size:25px; font-weight:800; font-variant-numeric:tabular-nums;
+               background:linear-gradient(135deg,#c7d2fe,#67e8f9); -webkit-background-clip:text;
+               background-clip:text; color:transparent; }
+    .stat .l { font-size:10.5px; font-weight:600; letter-spacing:.6px; text-transform:uppercase;
+               color:var(--faint); margin-top:5px; }
+    h3.sec { margin:6px 0 10px; font-size:13.5px; }
+    .split { display:flex; height:14px; border-radius:999px; background:var(--input); overflow:hidden;
+             border:1px solid var(--line-soft); }
+    .split .auto  { background:linear-gradient(90deg,#10b981,#34d399); }
+    .split .human { background:linear-gradient(90deg,#0ea5e9,#38bdf8); }
+    .split-legend { display:flex; gap:18px; margin-top:9px; font-size:12.5px; color:var(--muted); flex-wrap:wrap; }
+    .split-legend b { color:var(--text); font-variant-numeric:tabular-nums; }
+    .bar { height:12px; border-radius:999px; background:var(--input); border:1px solid var(--line-soft);
+           overflow:hidden; margin-top:6px; }
+    .bar > div { height:100%; border-radius:999px; background:linear-gradient(90deg,var(--a1),var(--a2)); }
+    .bar.hot > div { background:linear-gradient(90deg,#f59e0b,#ef4444); }
+
+    /* ── track timeline ── */
+    .evt { position:relative; padding:7px 0 7px 24px; animation:fadeUp .25s ease both; }
+    .evt::before { content:""; position:absolute; left:4px; top:20px; bottom:-8px; width:2px;
+                   background:var(--line-soft); }
+    .evt:last-child::before { display:none; }
+    .evt-dot { position:absolute; left:0; top:11px; width:10px; height:10px; border-radius:50%;
+               background:var(--accent); box-shadow:0 0 0 3px rgba(56,189,248,.15); }
+    .evt.ok .evt-dot   { background:var(--ok);   box-shadow:0 0 0 3px rgba(52,211,153,.15); }
+    .evt.warn .evt-dot { background:var(--warn); box-shadow:0 0 0 3px rgba(251,191,36,.15); }
+    .evt.bad .evt-dot  { background:var(--bad);  box-shadow:0 0 0 3px rgba(248,113,113,.15); }
+    .evt-status { font-size:13px; font-weight:700; }
+    .evt-status .evt-tag { font-size:10px; font-weight:600; color:var(--faint); text-transform:uppercase;
+                           letter-spacing:.5px; margin-inline-start:8px; }
+    .evt-reason { color:var(--muted); font-size:12px; margin-top:2px; }
+    .evt-note { color:var(--faint); font-size:12px; padding:6px 0; }
+
+    /* ── toast ── */
+    #toast {
+      position:fixed; bottom:24px; left:50%; transform:translateX(-50%);
+      background:linear-gradient(180deg,#16203c,#111a30); border:1px solid var(--line);
+      border-left:3px solid var(--accent); color:var(--text);
+      padding:13px 18px; border-radius:12px; display:none; z-index:100; max-width:580px;
+      font-size:13px; line-height:1.5; box-shadow:0 12px 40px -8px rgba(0,0,0,.65);
+      animation:toastIn .28s cubic-bezier(.21,1.02,.55,1);
+    }
+    @keyframes toastIn { from { opacity:0; transform:translate(-50%,14px); } to { opacity:1; transform:translate(-50%,0); } }
+
+    footer { max-width:1080px; margin:0 auto 30px; padding:0 20px; color:var(--faint);
+             font-size:11.5px; text-align:center; }
+
+    @media (max-width:860px) {
+      .grid { grid-template-columns:1fr; }
+      .stats { grid-template-columns:repeat(2,1fr); }
+      .auth { margin-inline-start:0; }
+    }
   </style>
 </head>
 <body>
   <header>
-    <h1>ApprovalFlow</h1>
-    <p>AI-assisted invoice &amp; expense approvals · gateway <code id="api"></code></p>
-    <div style="margin-inline-start:auto; display:flex; gap:8px; align-items:center">
-      <input id="whoami" placeholder="your name" style="width:150px" />
-      <select id="role" style="width:130px">
+    <div class="brand">
+      <svg width="30" height="30" viewBox="0 0 32 32" aria-hidden="true">
+        <defs><linearGradient id="lg" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#6366f1"/><stop offset="1" stop-color="#22d3ee"/>
+        </linearGradient></defs>
+        <rect width="32" height="32" rx="9" fill="url(#lg)"/>
+        <path d="M9 16.5l4.5 4.5L23 11.5" stroke="#fff" stroke-width="3" stroke-linecap="round" stroke-linejoin="round" fill="none"/>
+      </svg>
+      <div>
+        <h1>ApprovalFlow</h1>
+        <p>AI-assisted invoice &amp; expense approvals · gateway <code id="api"></code></p>
+      </div>
+    </div>
+    <div class="auth">
+      <input id="whoami" placeholder="your name" />
+      <select id="role">
         <option value="submitter">submitter</option>
         <option value="approver">approver</option>
         <option value="admin">admin</option>
@@ -64,38 +236,53 @@
     </div>
   </header>
 
-  <nav>
-    <button id="nav-submit" class="active" onclick="show('submit')">Submit</button>
-    <button id="nav-track" onclick="show('track')">Track</button>
-    <button id="nav-approvals" onclick="show('approvals')">Approvals</button>
-    <button id="nav-dashboard" onclick="show('dashboard')">Dashboard</button>
-  </nav>
+  <div class="navwrap">
+    <nav>
+      <button id="nav-submit" class="active" onclick="show('submit')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 2 11 13"/><path d="M22 2 15 22l-4-9-9-4z"/></svg>
+        Submit</button>
+      <button id="nav-track" onclick="show('track')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+        Track</button>
+      <button id="nav-approvals" onclick="show('approvals')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M22 12h-6l-2 3h-4l-2-3H2"/><path d="M5.45 5.11 2 12v6a2 2 0 0 0 2 2h16a2 2 0 0 0 2-2v-6l-3.45-6.89A2 2 0 0 0 16.76 4H7.24a2 2 0 0 0-1.79 1.11z"/></svg>
+        Approvals</button>
+      <button id="nav-dashboard" onclick="show('dashboard')">
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+        Dashboard</button>
+    </nav>
+  </div>
 
   <main>
     <!-- ─────────── Submit ─────────── -->
     <section id="tab-submit" class="tab active"><div class="card">
-      <div class="muted">Pick a sample or paste your own invoice JSON:</div>
-      <div style="margin-top:8px">
-        <button class="action small ghost" onclick="fillSample('auto')">In-policy meal (auto)</button>
-        <button class="action small ghost" onclick="fillSample('escalate')">Client dinner $1,820 (escalates)</button>
-        <button class="action small ghost" onclick="fillSample('failure')">Hardware $9,500 + payment failure</button>
+      <h2 class="card-title">Submit an invoice</h2>
+      <p class="card-sub">Pick a sample or paste your own JSON — the agent reviews it, the deterministic router decides.</p>
+      <div class="samples">
+        <button class="action small ghost" onclick="fillSample('auto')"><span class="dot ok"></span>In-policy meal (auto)</button>
+        <button class="action small ghost" onclick="fillSample('escalate')"><span class="dot warn"></span>Client dinner $1,820 (escalates)</button>
+        <button class="action small ghost" onclick="fillSample('failure')"><span class="dot bad"></span>Hardware $9,500 + payment failure</button>
       </div>
       <label>Invoice JSON</label>
       <textarea id="payload"></textarea>
-      <button class="action" onclick="submitInvoice()">Submit →</button>
-      <button class="action ghost" id="dupBtn" onclick="submitDuplicate()" style="display:none">Submit again — same invoice (duplicate test)</button>
+      <div class="btnrow">
+        <button class="action" onclick="submitInvoice()">Submit →</button>
+        <button class="action ghost" id="dupBtn" onclick="submitDuplicate()" style="display:none">Submit again — same invoice (duplicate test)</button>
+      </div>
       <pre id="submitOut">—</pre>
       <div class="muted" style="margin-top:6px">Tip: submit, then use "Submit again" to send the identical invoice — it is short-circuited as a duplicate (INV-1007 / F3).</div>
     </div></section>
 
     <!-- ─────────── Track ─────────── -->
     <section id="tab-track" class="tab"><div class="card">
+      <h2 class="card-title">Track an invoice</h2>
+      <p class="card-sub">Live status over SSE — every hop of the workflow, as it happens.</p>
       <div class="grid">
         <div>
           <label>Tracking id</label>
           <input id="tid" placeholder="paste a tracking id" />
           <button class="action" onclick="connectTracking()">Follow live (SSE)</button>
-          <div id="statusNow" style="margin-top:12px">—</div>
+          <div id="statusNow" style="margin-top:16px">—</div>
           <div id="replyBox" style="display:none">
             <label>The approver asked for more info — reply here:</label>
             <input id="replyMsg" placeholder="e.g. Client is Acme Corp, deal Q3-042" />
@@ -104,36 +291,41 @@
         </div>
         <div>
           <label>Live event stream</label>
-          <div class="log" id="eventLog">not connected</div>
+          <div class="log" id="eventLog"><div class="evt-note">not connected</div></div>
         </div>
       </div>
     </div></section>
 
     <!-- ─────────── Approvals ─────────── -->
     <section id="tab-approvals" class="tab"><div class="card">
-      <div class="muted">Only the items the system escalated — with the agent's recommendation, confidence and cited rules (F4).</div>
+      <h2 class="card-title">Approval queue</h2>
+      <p class="card-sub">Only the items the system escalated — with the agent's recommendation, confidence and cited rules (F4).</p>
       <div id="queue">loading…</div>
     </div></section>
 
     <!-- ─────────── Dashboard ─────────── -->
     <section id="tab-dashboard" class="tab"><div class="card">
+      <h2 class="card-title">Operations dashboard</h2>
+      <p class="card-sub">The autonomy split, department budgets and the enforced-ceiling proof (F8 / F10).</p>
       <div class="stats" id="statCards"></div>
       <div class="grid">
         <div>
-          <h3 style="margin:6px 0">Money: autonomous vs human-approved</h3>
+          <h3 class="sec">Money: autonomous vs human-approved</h3>
           <div id="moneySplit" class="muted">—</div>
-          <h3 style="margin:16px 0 6px">Autonomy proof (F10)</h3>
+          <h3 class="sec" style="margin-top:18px">Autonomy proof (F10)</h3>
           <pre id="proofBox">—</pre>
         </div>
         <div>
-          <h3 style="margin:6px 0">Department budgets</h3>
+          <h3 class="sec">Department budgets</h3>
           <div id="budgetBars">—</div>
         </div>
       </div>
     </div></section>
   </main>
 
-  <div id="toast" style="position:fixed; bottom:22px; left:50%; transform:translateX(-50%); background:var(--card); border:1px solid var(--accent); color:var(--text); padding:12px 18px; border-radius:10px; display:none; z-index:100; max-width:560px; font-size:13px; box-shadow:0 6px 24px rgba(0,0,0,.4);"></div>
+  <footer>The agent recommends — the deterministic router decides.</footer>
+
+  <div id="toast"></div>
 
   <script>
     let toastTimer = null;
@@ -202,13 +394,13 @@
         notes: "Journey D: approve me in the Approvals tab, then watch the payment fail and the budget roll back."
       }
     };
-    fillSample("auto");
 
     function fillSample(kind) {
       const s = JSON.parse(JSON.stringify(SAMPLES[kind]));
       s.invoiceNumber = "UI-" + Date.now();
       document.getElementById("payload").value = JSON.stringify(s, null, 2);
     }
+    fillSample("auto");
 
     function show(tab) {
       for (const t of ["submit", "track", "approvals", "dashboard"]) {
@@ -220,10 +412,11 @@
       if (tab === "dashboard") { loadDashboard(); refreshTimer = setInterval(loadDashboard, 5000); }
     }
 
-    function pill(status) {
-      const cls = { paid: "ok", auto_approved: "ok", pending_approval: "warn", info_requested: "warn",
-                    payment_failed: "bad", rejected: "bad" }[status] || "info";
-      return `<span class="pill ${cls}">${status || "…"}</span>`;
+    const STATUS_CLS = { paid: "ok", auto_approved: "ok", pending_approval: "warn", info_requested: "warn",
+                         payment_failed: "bad", rejected: "bad" };
+    function pill(status, big) {
+      const cls = STATUS_CLS[status] || "info";
+      return `<span class="pill ${cls}${big ? " big" : ""}">${status || "…"}</span>`;
     }
 
     // ── Submit ──
@@ -263,34 +456,52 @@
     }
 
     // ── Track (SSE) ──
+    function addEvent(tag, status, reason) {
+      const log = document.getElementById("eventLog");
+      const row = document.createElement("div");
+      row.className = "evt " + (STATUS_CLS[status] || "info");
+      row.innerHTML = `<span class="evt-dot"></span>
+        <div class="evt-status">${status || "…"}<span class="evt-tag">${tag}</span></div>
+        ${reason ? `<div class="evt-reason">${reason}</div>` : ""}`;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    }
+    function addNote(text) {
+      const log = document.getElementById("eventLog");
+      const row = document.createElement("div");
+      row.className = "evt-note";
+      row.textContent = text;
+      log.appendChild(row);
+      log.scrollTop = log.scrollHeight;
+    }
+
     async function connectTracking() {
       const tid = document.getElementById("tid").value.trim();
       if (!tid) return;
       if (eventSource) eventSource.close();
       const log = document.getElementById("eventLog");
-      log.textContent = "";
+      log.innerHTML = "";
       try {
         const s = await (await fetch(`${API}/invoices/${tid}/status`)).json();
         renderStatus(s);
-        log.textContent += `[now] ${s.status} — ${s.reason || ""}\n`;
-      } catch { log.textContent = "status fetch failed\n"; }
+        addEvent("now", s.status, s.reason);
+      } catch { addNote("status fetch failed"); }
 
       // EventSource cannot set headers — the token rides as a query parameter.
       eventSource = new EventSource(`${API}/invoices/${tid}/events?access_token=${encodeURIComponent(TOKEN)}`);
       eventSource.onmessage = (m) => {
         const e = JSON.parse(m.data);
         renderStatus(e);
-        log.textContent += `[live] ${e.status} — ${e.reason || ""}\n`;
-        log.scrollTop = log.scrollHeight;
+        addEvent("live", e.status, e.reason);
         if (["paid", "payment_failed", "rejected", "duplicate"].includes(e.status)) eventSource.close();
       };
-      eventSource.onerror = () => { log.textContent += "[stream closed]\n"; eventSource.close(); };
+      eventSource.onerror = () => { addNote("stream closed"); eventSource.close(); };
     }
 
     function renderStatus(s) {
       document.getElementById("statusNow").innerHTML =
-        pill(s.status) + `<div class="muted" style="margin-top:8px">${s.reason || ""}</div>` +
-        (s.decidedBy ? `<div class="muted">decided by: <b>${s.decidedBy}</b></div>` : "");
+        pill(s.status, true) + `<div class="muted" style="margin-top:10px">${s.reason || ""}</div>` +
+        (s.decidedBy ? `<div class="muted" style="margin-top:6px">decided by: <b>${s.decidedBy}</b></div>` : "");
       document.getElementById("replyBox").style.display = s.status === "info_requested" ? "block" : "none";
     }
 
@@ -320,16 +531,26 @@
         if (!items.length) { box.innerHTML = `<div class="muted" style="margin-top:12px">Queue is empty — the boring majority handles itself (F6).</div>`; return; }
         box.innerHTML = items.map(e => `
           <div class="item">
-            <h3>${e.vendor || "?"} · $${(e.amountUsd ?? 0).toFixed(2)} <span class="muted">(${e.department || ""})</span></h3>
+            <div class="item-head">
+              <div><h3>${e.vendor || "?"}</h3> <span class="chip">${e.department || ""}</span></div>
+              <div class="amount">$${(e.amountUsd ?? 0).toFixed(2)}</div>
+            </div>
             <div class="meta">${(e.ruleIds || []).map(r => `<span class="pill warn">${r}</span>`).join(" ")}</div>
-            <div class="meta">agent: <b>${e.agent?.proposed_route || "?"}</b> @ confidence ${(e.agent?.confidence ?? 0).toFixed(2)} — ${e.agent?.reason || ""}</div>
+            <div class="agent-box">
+              <div class="agent-row">agent recommends <b>${e.agent?.proposed_route || "?"}</b>
+                <span class="conf-num">confidence ${(e.agent?.confidence ?? 0).toFixed(2)}</span></div>
+              <div class="meter"><div style="width:${Math.min(100, (e.agent?.confidence ?? 0) * 100).toFixed(0)}%"></div></div>
+              <div class="muted" style="margin-top:8px">${e.agent?.reason || ""}</div>
+            </div>
             ${(e.reasons || []).map(r => `<div class="muted">• ${r}</div>`).join("")}
-            ${e.submitterReply ? `<div class="meta" style="margin-top:6px">reply from submitter: <b>${e.submitterReply}</b></div>` : ""}
-            <div style="margin-top:10px">
-              <input id="note-${e.trackingId}" placeholder="note / question for request-info" style="margin-bottom:8px" />
-              <button class="action small" onclick="act('${e.trackingId}','approve')">Approve</button>
-              <button class="action small danger" onclick="act('${e.trackingId}','reject')">Reject</button>
-              <button class="action small ghost" onclick="act('${e.trackingId}','request_info')">Request info</button>
+            ${e.submitterReply ? `<div class="reply">reply from submitter: <b>${e.submitterReply}</b></div>` : ""}
+            <div class="actions">
+              <input id="note-${e.trackingId}" placeholder="note / question for request-info" />
+              <div class="btnrow">
+                <button class="action small" onclick="act('${e.trackingId}','approve')">Approve</button>
+                <button class="action small danger" onclick="act('${e.trackingId}','reject')">Reject</button>
+                <button class="action small ghost" onclick="act('${e.trackingId}','request_info')">Request info</button>
+              </div>
             </div>
           </div>`).join("");
       } catch (err) { box.textContent = "queue unavailable: " + err; }
@@ -370,16 +591,26 @@
           [m.paid, "paid"], [m.payment_failed, "payment failed"],
           [m.rejected_by_router, "rejected"], [(m.escalation_rate * 100).toFixed(0) + "%", "escalation rate"],
         ].map(([v, l]) => `<div class="stat"><div class="v">${v}</div><div class="l">${l}</div></div>`).join("");
-        document.getElementById("moneySplit").innerHTML =
-          `autonomous: <b>$${m.money_auto_usd.toFixed(2)}</b> · human-approved: <b>$${m.money_human_usd.toFixed(2)}</b>`;
+
+        const auto = m.money_auto_usd, human = m.money_human_usd, total = auto + human;
+        document.getElementById("moneySplit").innerHTML = total > 0 ? `
+          <div class="split">
+            <div class="auto" style="width:${(auto / total * 100).toFixed(1)}%"></div>
+            <div class="human" style="width:${(human / total * 100).toFixed(1)}%"></div>
+          </div>
+          <div class="split-legend">
+            <span><span class="dot ok"></span> autonomous <b>$${auto.toFixed(2)}</b></span>
+            <span><span class="dot info"></span> human-approved <b>$${human.toFixed(2)}</b></span>
+          </div>` : `<div class="muted">no money moved yet</div>`;
+
         const proof = await (await fetch(API + "/audit/autonomy-proof")).json();
         document.getElementById("proofBox").textContent = JSON.stringify(proof, null, 2);
         const b = await (await fetch(API + "/budgets")).json();
         document.getElementById("budgetBars").innerHTML = (b.budgets || []).map(x => {
           const pct = Math.min(100, (x.reserved / x.total) * 100).toFixed(1);
-          return `<div style="margin-bottom:12px">
+          return `<div style="margin-bottom:14px">
             <div class="muted">${x.department} — reserved $${x.reserved.toFixed(2)} of $${x.total.toFixed(2)} (available $${x.available.toFixed(2)})</div>
-            <div class="bar"><div style="width:${pct}%"></div></div>
+            <div class="bar${pct > 85 ? " hot" : ""}"><div style="width:${pct}%"></div></div>
           </div>`;
         }).join("");
       } catch (err) { document.getElementById("statCards").innerHTML = `<div class="muted">dashboard unavailable: ${err}</div>`; }
